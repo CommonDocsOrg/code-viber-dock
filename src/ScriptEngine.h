@@ -180,13 +180,23 @@ enum class ScriptStatus {
     Threw,        // an uncaught exception (error: message and stack)
     TimedOut,     // the watchdog interrupted it (it ran longer than the time limit)
     OutOfMemory,  // the heap limit was reached
+    // Round 25 phase 25A: a call into this script is on the stack already (a host call the script
+    // made led back to it synchronously, or a message pumped inside it). No call into a script ever
+    // starts inside another of its calls: the engine keeps this request and runs it once the host
+    // calls RunDeferred (Deferred), or refuses one that cannot wait because its result is needed
+    // now (Busy: draw, measure, drawPopup, onWheel, onPress). Neither ran anything.
+    Deferred,
+    Busy,
 };
 
 struct ScriptResult {
     ScriptStatus status = ScriptStatus::Ok;
     std::string json;    // the return value as JSON (undefined: empty)
     std::wstring error;  // Threw / TimedOut / OutOfMemory: what happened, with the stack
-    bool Failed() const { return status != ScriptStatus::Ok && status != ScriptStatus::Missing; }
+    double ms = 0.0;     // round 25 phase 25A: the wall time the call ran (0: nothing ran)
+    bool Failed() const {
+        return status == ScriptStatus::Threw || status == ScriptStatus::TimedOut || status == ScriptStatus::OutOfMemory;
+    }
 };
 
 struct ScriptLimits {
@@ -243,6 +253,16 @@ public:
     // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON);
     // "storage" (round 6 phase 6C): storage.onChange listeners get `payload` ({ key }, JSON).
     virtual ScriptResult Emit(const std::string& channel, const std::string& payload = {}) = 0;
+
+    // --- round 25 phase 25A: re-entry ---
+    // A call into the script is on the stack (every entry above then answers Deferred / Busy).
+    virtual bool Busy() const = 0;
+    // The calls kept while it was busy (in order; repeats of the same timer, provider channel,
+    // hover / drag / visibility / settings / tick coalesced; bounded, and a chain of calls that
+    // keep re-triggering one another through RunDeferred is cut after a few rounds with a warning).
+    virtual size_t DeferredCalls() const = 0;
+    // Runs the oldest kept call (not while Busy); `what` names it for the host's messages.
+    virtual ScriptResult RunDeferred(std::string& what) = 0;
 };
 
 std::unique_ptr<ScriptEngine> CreateQuickJsEngine(ScriptHost& host, const ScriptLimits& limits);

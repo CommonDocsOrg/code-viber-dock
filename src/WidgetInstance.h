@@ -204,6 +204,13 @@ public:
     // A line of the host's own in the widget's log (reloads, file changes).
     void Note(const std::wstring& line) { Log(ScriptLogLevel::Info, line); }
 
+    // Round 25 phase 25A, WidgetRuntime (posted, PostDeferred): what had to wait while a call into
+    // this script was on the stack runs now: an engine that failed or a reload asked for meanwhile,
+    // shell.open / notifications.activate (they can pump messages, so they never run inside a
+    // call), the redraws skipped, then the calls the engine kept (ScriptEngine::RunDeferred).
+    // Nothing while a call is still on the stack (that call's end posts it again).
+    void RunDeferred();
+
     // A redraw was requested since the last Render (clears the flag).
     bool TakeChanged() {
         const bool c = changed_;
@@ -303,9 +310,37 @@ private:
     void DropLayers(Renderer* renderer);
 
     // A call's outcome: a failure moves the widget to Error / Suspended (logged, timers stopped,
-    // the tile shown). True if it went fine.
+    // the tile shown). True if it went fine. Round 25 phase 25A: also charges the call's time to
+    // the CPU budget (ChargeCpu), and after the outermost call posts what waited for it
+    // (KickDeferred). Deferred (kept for later) counts as fine, Busy (refused) as not.
     bool Check(const ScriptResult& r, const char* what);
     void Fail(State state, const std::wstring& message);
+
+    // --- round 25 phase 25A: re-entry and the CPU budget ---
+    // A call into the script is on the stack (the live engine's, or one Fail retired meanwhile).
+    bool InCall() const { return (engine_ && engine_->Busy()) || (retired_ && retired_->Busy()); }
+    bool HasDeferred() const;
+    // Posts RunDeferred when something waits and no call is on the stack (not for a preview).
+    void KickDeferred();
+    // A script's share of the UI thread: the wall time of its calls (draw, measure, events,
+    // timers, provider callbacks, http results...) summed in one-second buckets over a sliding
+    // window. Past the budget the widget is suspended (Fail). False then.
+    bool ChargeCpu(double ms);
+    // More than kCpuBudgetMs of script time within the last kCpuWindowS seconds (half the UI thread
+    // for ten seconds) suspends the widget. Chosen from what the bundled widgets do (read from
+    // widgets\, not profiled): the analog clock's 16 ms sweep, the analog date's and the photo
+    // frame's 16 ms transitions draw one small frame per timer (around a millisecond of script
+    // each: under 10 % of the thread at 60 frames a second), the media marquee runs at 33 - 100 ms,
+    // the clocks and system monitors wake once a second or less. The heaviest normal moment is the
+    // photo frame decoding a large photo inside a call (its manifest allows 1000 ms) once per
+    // picture: at the shortest "Time per picture" (1 s) the budget still holds a 400 ms decode every
+    // second plus its transition; a longer window would let a runaway freeze the dock for longer,
+    // a shorter one would trip on a few slow decodes in a row. What does trip it is the runaway the
+    // per-call watchdog cannot see: 64 timers each running just under timeLimitMs.
+    static constexpr double kCpuBudgetMs = 5000.0;
+    static constexpr int kCpuWindowS = 10;
+    double cpuMs_[kCpuWindowS]{};  // script ms per second (ring, by second % kCpuWindowS)
+    int64_t cpuSecond_ = 0;        // the second of the newest bucket
     void ScheduleRefresh();
     // The upright box size in DIPs for the current dock (from the cached measure).
     void BoxDips(float& w, float& h) const;
@@ -336,7 +371,25 @@ private:
     uint32_t refreshMs_ = 0;
     bool refreshSet_ = false;  // the script called timer.setRefresh (overrides the manifest)
     std::wstring refreshZone_;  // its timeZone option (round 5 phase D): aligned to that zone's time of day
-    uint64_t generation_ = 0;  // +1 per load: http results of an older load are dropped
+    // A new one per load and per failure (http results and the editor of an older one are dropped).
+    // Round 25 phase 25A: taken from a process-wide counter (WidgetInstance.cpp NextGeneration):
+    // every instance used to count from 0, so a result posted for an instance that went could be
+    // taken by a new instance allocated at the same address with the same count (request ids
+    // start at 1 in every instance too).
+    uint64_t generation_ = 0;
+    // Round 25 phase 25A: what waits for the call on the stack to return (RunDeferred).
+    struct AfterCall {
+        enum class Kind { ShellOpen, Activate } kind = Kind::ShellOpen;
+        std::wstring target, args;  // ShellOpen: the expanded target and its arguments
+        std::wstring shown;         // ShellOpen: the target as the script gave it (messages)
+        uint32_t id = 0;            // Activate: the notification
+    };
+    static constexpr size_t kMaxAfterCall = 16;  // per call; more are refused (a script opening 16 things at once is broken)
+    std::vector<AfterCall> afterCall_;
+    std::unique_ptr<ScriptEngine> retired_;  // Fail during a call: freed once that call returned
+    bool reloadAfterCall_ = false;           // Reload asked for during a call
+    bool redrawAfterCall_ = false;           // a draw / measure was refused during a call
+    bool popupRedrawAfterCall_ = false;      // a drawPopup was refused during a call
     int nextRequest_ = 1;
     int requests_ = 0;         // http requests in flight (this generation)
     PopupRequest popupRequest_;

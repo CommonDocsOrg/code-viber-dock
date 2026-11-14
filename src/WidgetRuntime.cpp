@@ -254,6 +254,7 @@ void WidgetRuntime::Shutdown() {
     armed_ = savePending_ = reloadPending_ = false;
     entries_.clear();
     reloadIds_.clear();
+    deferred_.clear();
     owner_ = nullptr;
 }
 
@@ -311,6 +312,15 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
                     ++storageNotices_;
                     w->StorageChanged(n.key);
                 }
+            }
+            return true;
+        }
+        case kDeferredMessage: {
+            deferredPosted_ = false;
+            const std::vector<WidgetInstance*> list = std::move(deferred_);
+            deferred_.clear();
+            for (WidgetInstance* w : list) {
+                if (Alive(w)) w->RunDeferred();
             }
             return true;
         }
@@ -642,8 +652,15 @@ void WidgetRuntime::Add(WidgetInstance* w) {
     NotifyChanged();
 }
 
+void WidgetRuntime::PostDeferred(WidgetInstance* w) {
+    if (!owner_ || !Alive(w)) return;
+    if (std::find(deferred_.begin(), deferred_.end(), w) == deferred_.end()) deferred_.push_back(w);
+    if (!deferredPosted_) deferredPosted_ = PostMessageW(owner_, kDeferredMessage, 0, 0) != FALSE;
+}
+
 void WidgetRuntime::Remove(WidgetInstance* w) {
     ReleaseProviders(w);
+    std::erase(deferred_, w);  // round 25 phase 25A: a new instance at this address never inherits it
     std::erase(instances_, w);
     CancelAll(w);
     SyncWatch();
@@ -808,7 +825,13 @@ void WidgetRuntime::OnTimer() {
         if (e.due <= now) due.push_back(e);
     }
     std::sort(due.begin(), due.end(), [](const Entry& a, const Entry& b) { return a.due < b.due; });
+    // Round 25 phase 25A (A6): at most kTimerSliceMs of callbacks per pass (the first always runs).
+    // The ones left keep their due time (the earliest), so Arm below wakes again at once (the
+    // shortest SetTimer) and they run first then: nothing is skipped, only spread out.
+    const double sliceStart = WidgetNowMs();
+    bool ranOne = false;
     for (const Entry& d : due) {
+        if (ranOne && WidgetNowMs() - sliceStart >= kTimerSliceMs) break;
         auto it = std::find_if(entries_.begin(), entries_.end(), [&](const Entry& e) { return e.w == d.w && e.id == d.id; });
         if (it == entries_.end() || it->due > now) continue;  // cancelled / replaced by an earlier callback
         if (it->period == 0) {
@@ -818,6 +841,7 @@ void WidgetRuntime::OnTimer() {
         } else {
             it->due = std::max(it->due + it->period, WidgetNowMs() + 1.0);
         }
+        ranOne = true;
         if (Alive(d.w)) d.w->OnTimer(d.id);
     }
     firing_ = false;

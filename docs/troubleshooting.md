@@ -137,7 +137,7 @@ The free version of HWiNFO shares its sensors for 12 hours after each start. Aft
 A widget that fails shows its problem on its tile:
 
 - **Error**: the widget hit a mistake. The message says what.
-- **Stopped**: the widget took too long and was stopped, so it could not slow down the dock.
+- **Stopped**: the widget took too long and was stopped, so it could not slow down the dock: one of its steps ran too long, or it kept the dock busy for more than half of ten seconds.
 
 To see what happened:
 

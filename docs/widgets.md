@@ -384,7 +384,7 @@ Needs `"shell"` in `permissions` (else every call throws).
 
 | Call | |
 |---|---|
-| `shell.open(target, args)` | Opens a file, folder, app or URL the way Explorer does (ShellExecute; `%VAR%` expanded). |
+| `shell.open(target, args)` | Opens a file, folder, app or URL the way Explorer does (ShellExecute; `%VAR%` expanded). Round 25: it opens right **after** the calling function returns (ShellExecute can wait on other programs and show its own message box, which must not happen in the middle of a script call), so `shell.open` returns `true` at once and a target that cannot be opened is reported in the widget's log ("shell.open: could not open ..."), not thrown. A missing permission or an empty target still throws. At most 16 per call. |
 | `shell.list(folder)` | The folder's entries, folders first, in Explorer's name order, hidden and system entries left out (up to 1000): `[{ name, path, folder, size, modified }]` (`modified`: ms since 1970, UTC). Draw their icons with `canvas.fileIcon`. |
 | `shell.sendKeys(name)` | Presses one key combination of a fixed allow-list with `SendInput` (as if typed: the keys go to whatever has the focus, the shell handles the Windows-key ones). Anything else throws, and so does input Windows refuses (a window of higher integrity has the focus). Returns `true`. |
 
@@ -467,9 +467,9 @@ the dock) until the widget goes or reloads; while it runs every change calls `on
 | `notifications.dismiss(id)` | Removes it from Windows' notification centre (a balloon: from the list). |
 | `notifications.dismissAll()` | Every notification of the dock's list. |
 | `notifications.markRead(id)` | Marks it read (its badge goes; it stays in Windows). |
-| `notifications.activate(id)` | Brings its app to the front from the dock (its slot's windows, or starts it: shell:AppsFolder for an AUMID, the exe for a path) and marks its notifications read. Windows does not let another app activate the toast itself. |
+| `notifications.activate(id)` | Brings its app to the front from the dock (its slot's windows, or starts it: shell:AppsFolder for an AUMID, the exe for a path) and marks its notifications read. Windows does not let another app activate the toast itself. Round 25: an unknown `id` throws at once; the activation itself runs right after the calling function returns (starting an app can wait on other programs). |
 | `notifications.openCentre()` | Toggles the dock's notification centre (README "Notifications and badges") over the widget: the same list as the `notifications` element's, opened after the call returns. Throws when the widget has no slot. |
-| `notifications.onChange(fn)` | `fn(list)` (the `get()` array) when notifications come, go or change state. Returns a remover. |
+| `notifications.onChange(fn)` | `fn(list)` (the `get()` array) when notifications come, go or change state. Returns a remover. A change the widget makes itself (`dismiss`, `dismissAll`, `markRead`, `activate`) reaches its own listeners **after** the function that made it returns, not inside the call (see [Limits and errors](#limits-and-errors), re-entry). |
 
 ### calendar
 
@@ -885,6 +885,24 @@ An analog clock on the dock is the Analog clock widget (Dock settings > Contents
   where it is (an endless loop, a runaway regular expression, an async loop: none can catch it),
   the widget is **suspended** and shows a "Stopped" tile until it is reloaded. The dock itself
   keeps responding: at worst it waits that long once.
+- **CPU budget** (round 25). The watchdog limits one call, not how many come: a widget whose calls
+  (draws, measures, events, timers, provider callbacks, http results, together) take **more than
+  5 seconds of the last 10** is suspended the same way, with "the script used the UI thread for
+  ... s of the last 10 s" as its message. Every widget runs on the dock's one UI thread, so that
+  is a widget keeping the dock half frozen; the bundled widgets stay far below it (a 60 frames a
+  second animation that draws in about a millisecond uses under 10 %). Due timers also run in short
+  slices (about 6 ms of callbacks, then input and painting get a turn), so many timers falling due
+  together are spread over a few frames instead of running as one block.
+- **Re-entry** (round 25). A call into a widget's script never starts while another of its calls
+  is running. When something the script does leads straight back to it (calling
+  `notifications.dismiss` / `dismissAll` / `markRead` / `activate`, or `calendar.refresh()`, changes
+  what that provider reports, so its own `onChange` listeners are due), the listener call is kept
+  and runs right after the current call returns, in order; the same timer, provider channel or
+  storage key kept twice runs once, and so do repeated `onHover`, `onDrag`, `onVisibilityChange`,
+  `onSettingsChanged` and `tick` calls (with the latest event). A listener whose own work keeps
+  triggering it again is cut off after 8 such rounds (a warning in the log), and at most 64 calls
+  are kept at a time. A widget may also see `shell.open` and `notifications.activate` take effect
+  only after its function returned (see their entries).
 - **Errors.** An uncaught exception in any export or timer callback (and a module that fails to
   load, a missing `draw` export, a package that is not installed) puts the widget in the **error**
   state: an "Error" tile with the first line of the message, the message and its stack

@@ -53,6 +53,13 @@ const char* FnName(ScriptEngine::Fn fn) {
     }
 }
 
+// Round 25 phase 25A: generations are process-wide (WidgetInstance::generation_), so one names one
+// load of one instance. The UI thread is the only caller; 64 bits never wrap.
+uint64_t NextGeneration() {
+    static uint64_t last = 0;
+    return ++last;
+}
+
 }  // namespace
 
 WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Factory1* d2d, IDWriteFactory* dwrite,
@@ -82,7 +89,11 @@ WidgetInstance::~WidgetInstance() {
         runtime_.CancelAll(this);
         runtime_.Remove(this);
     }
+    // Round 25 phase 25A: no host path destroys an instance from inside one of its calls (every
+    // script request that changes the dock is posted; shell.open and notifications.activate, the
+    // two that could pump messages, run after the call), so the engine is never on the stack here.
     engine_.reset();  // its finalizers may still log
+    retired_.reset();
 }
 
 std::wstring WidgetInstance::Name() const {
@@ -90,6 +101,15 @@ std::wstring WidgetInstance::Name() const {
 }
 
 void WidgetInstance::Reload() {
+    // Round 25 phase 25A: never under a call of the script it replaces (a message pumped inside
+    // it): the call returns first, then RunDeferred reloads.
+    if (InCall()) {
+        reloadAfterCall_ = true;
+        return;
+    }
+    retired_.reset();
+    reloadAfterCall_ = redrawAfterCall_ = popupRedrawAfterCall_ = false;
+    std::fill(std::begin(cpuMs_), std::end(cpuMs_), 0.0);  // a new script, a new budget
     DropEditor(true);  // an open editor goes; the old script's promise is never settled
     capturing_ = false;  // round 23 phase 23A: the new script never claimed the held button
     if (!preview_) {
@@ -108,7 +128,7 @@ void WidgetInstance::Reload() {
     refreshZone_.clear();
     measured_ = false;
     changed_ = true;
-    ++generation_;  // results of the old script's requests are dropped
+    generation_ = NextGeneration();  // results of the old script's requests are dropped
     requests_ = 0;
     struct Synced {  // whatever happens below, the watcher and the Console follow (not for a preview)
         WidgetRuntime& rt;
@@ -242,6 +262,14 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
         measuredBarCross_ == ctx.barCross) {
         return size_;
     }
+    // Round 25 phase 25A: asked while one of its own calls is on the stack (a message pumped inside
+    // it): measure() cannot run now; the last box stands (else the size hint) and RunDeferred
+    // measures and redraws once the call returned.
+    const bool busy = InCall();
+    if (busy) {
+        redrawAfterCall_ = true;
+        if (size_.main > 0.0f && size_.cross > 0.0f) return size_;
+    }
     const bool vertical = ctx.axis == DockAxis::Vertical;
     const float s = ctx.scale > 0.0f ? ctx.scale : 1.0f;
     if (dock_.standalone) {
@@ -273,7 +301,7 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
     dock_.width = vertical ? crossDip : mainDip;
     dock_.height = vertical ? mainDip : crossDip;
     bool flush = false;
-    if (state_ == State::Ok && engine_ && engine_->Has(ScriptEngine::Fn::Measure)) {
+    if (state_ == State::Ok && engine_ && !busy && engine_->Has(ScriptEngine::Fn::Measure)) {
         canvas_.Begin(nullptr, s, dock_.width, dock_.height);
         inCanvas_ = true;
         const ScriptResult r = engine_->Call(ScriptEngine::Fn::Measure, {});
@@ -328,6 +356,13 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
 }
 
 HRESULT WidgetInstance::Render(Renderer& renderer, Layer& layer, const LayoutContext& ctx) {
+    // Round 25 phase 25A: asked while one of its own calls is on the stack (a message pumped inside
+    // it): draw() cannot run now; the slot keeps its last picture and RunDeferred redraws it once
+    // the call returned (changed_ stays set, so nothing else is lost).
+    if (InCall()) {
+        redrawAfterCall_ = true;
+        return S_OK;
+    }
     if (!measured_) Measure(ctx);
     changed_ = false;
     const bool vertical = measuredAxis_ == DockAxis::Vertical;
@@ -607,7 +642,7 @@ void WidgetInstance::PixelSize(UINT& w, UINT& h) const {
 }
 
 void WidgetInstance::DrawInto(ID2D1DeviceContext* dc) {
-    if (!dc || state_ != State::Ok || !engine_ || !measured_) return;
+    if (!dc || state_ != State::Ok || !engine_ || !measured_ || InCall()) return;
     float w = 0, h = 0;
     BoxDips(w, h);
     ++draws_;
@@ -714,26 +749,127 @@ void WidgetInstance::OnTimer(int id) {
 }
 
 bool WidgetInstance::Check(const ScriptResult& r, const char* what) {
-    switch (r.status) {
-        case ScriptStatus::Ok:
-        case ScriptStatus::Missing:
-            return true;
-        case ScriptStatus::TimedOut: {
-            wchar_t buf[160];
-            swprintf_s(buf, L"%hs ran longer than %d ms and was stopped", what,
-                       package_ ? package_->manifest.timeLimitMs : 50);
-            Fail(State::Suspended, buf + (r.error.empty() ? std::wstring() : L"\n" + r.error));
-            return false;
+    bool ok = false;
+    if (state_ != State::Ok) {
+        // Round 25 phase 25A: the widget failed already while this call ran (Fail retired its
+        // engine): the first failure is the one shown, and nothing more is charged.
+    } else {
+        switch (r.status) {
+            case ScriptStatus::Ok:
+            case ScriptStatus::Missing:
+                ok = ChargeCpu(r.ms);
+                break;
+            case ScriptStatus::Deferred:  // round 25 phase 25A: kept; it runs from RunDeferred
+                ok = true;
+                break;
+            case ScriptStatus::Busy:  // refused (a draw / measure / wheel / press during a call): nothing ran
+                break;
+            case ScriptStatus::TimedOut: {
+                wchar_t buf[160];
+                swprintf_s(buf, L"%hs ran longer than %d ms and was stopped", what,
+                           package_ ? package_->manifest.timeLimitMs : 50);
+                Fail(State::Suspended, buf + (r.error.empty() ? std::wstring() : L"\n" + r.error));
+                break;
+            }
+            case ScriptStatus::OutOfMemory:
+                Fail(State::Error, JsonUtil::Utf8ToWide(what) + L": out of memory (" +
+                                       std::to_wstring(package_ ? package_->manifest.memoryLimitMb : 32) + L" MB limit)");
+                break;
+            case ScriptStatus::Threw:
+            default:
+                Fail(State::Error, r.error.empty() ? JsonUtil::Utf8ToWide(what) + L" failed" : r.error);
+                break;
         }
-        case ScriptStatus::OutOfMemory:
-            Fail(State::Error, JsonUtil::Utf8ToWide(what) + L": out of memory (" +
-                                   std::to_wstring(package_ ? package_->manifest.memoryLimitMb : 32) + L" MB limit)");
-            return false;
-        case ScriptStatus::Threw:
-        default:
-            Fail(State::Error, r.error.empty() ? JsonUtil::Utf8ToWide(what) + L" failed" : r.error);
-            return false;
     }
+    KickDeferred();  // round 25 phase 25A: the outermost call returned: what waited for it runs next
+    return ok;
+}
+
+// Round 25 phase 25A (A6): the per-call watchdog bounds one call, not how often calls come: 64
+// timers repeating every 16 ms, each just under timeLimitMs, kept the UI thread busy for good.
+// This bounds the script's share of the thread instead (kCpuBudgetMs in kCpuWindowS, the numbers'
+// reasoning in WidgetInstance.h). One add per call and a ten-entry sum; nothing ticks.
+bool WidgetInstance::ChargeCpu(double ms) {
+    if (!(ms > 0.0) || preview_) return true;
+    const int64_t second = static_cast<int64_t>(WidgetNowMs() / 1000.0);
+    if (second - cpuSecond_ >= kCpuWindowS) {
+        std::fill(std::begin(cpuMs_), std::end(cpuMs_), 0.0);
+    } else {
+        for (int64_t s = cpuSecond_ + 1; s <= second; ++s) cpuMs_[s % kCpuWindowS] = 0.0;
+    }
+    cpuSecond_ = second;
+    cpuMs_[second % kCpuWindowS] += ms;
+    double sum = 0.0;
+    for (double v : cpuMs_) sum += v;
+    if (sum <= kCpuBudgetMs) return true;
+    wchar_t buf[200];
+    swprintf_s(buf, L"the script used the UI thread for %.1f s of the last %d s (more than %.0f s): stopped so the "
+                    L"dock stays responsive",
+               sum / 1000.0, kCpuWindowS, kCpuBudgetMs / 1000.0);
+    Fail(State::Suspended, buf);
+    return false;
+}
+
+bool WidgetInstance::HasDeferred() const {
+    return retired_ || reloadAfterCall_ || redrawAfterCall_ || popupRedrawAfterCall_ || !afterCall_.empty() ||
+           (engine_ && engine_->DeferredCalls() > 0);
+}
+
+void WidgetInstance::KickDeferred() {
+    if (preview_ || InCall() || !HasDeferred()) return;
+    runtime_.PostDeferred(this);
+}
+
+void WidgetInstance::RunDeferred() {
+    if (InCall()) return;  // a message pumped inside one of its calls: that call's end posts again
+    retired_.reset();      // the engine Fail took away while it was on the stack
+    // shell.open / notifications.activate first: they were asked for before anything kept below.
+    std::vector<AfterCall> actions = std::move(afterCall_);
+    afterCall_.clear();
+    for (const AfterCall& a : actions) {
+        if (a.kind == AfterCall::Kind::ShellOpen) {
+            AllowSetForegroundWindow(ASFW_ANY);
+            const auto rc = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, nullptr, a.target.c_str(),
+                                                                    a.args.empty() ? nullptr : a.args.c_str(), nullptr,
+                                                                    SW_SHOWNORMAL));
+            if (rc <= 32) {
+                Log(ScriptLogLevel::Warn, L"shell.open: could not open " + a.shown + L" (" + std::to_wstring(rc) + L")");
+            } else {
+                Log(ScriptLogLevel::Info, L"shell.open " + a.shown);
+            }
+        } else if (!client_.WidgetActivateNotification(a.id)) {
+            Log(ScriptLogLevel::Warn, L"notifications.activate: the notification is gone");
+        }
+    }
+    if (reloadAfterCall_) {
+        reloadAfterCall_ = false;
+        Reload();  // drops what the old script kept
+        return;
+    }
+    if (redrawAfterCall_) {
+        redrawAfterCall_ = false;
+        // Forced: Render returned early with changed_ still set, so RequestRedraw would not post.
+        measured_ = false;
+        changed_ = true;
+        client_.WidgetChanged(*this);
+    }
+    if (popupRedrawAfterCall_) {
+        popupRedrawAfterCall_ = false;
+        if (state_ == State::Ok && PopupShown()) RequestPopup(PopupRequest{PopupRequest::Kind::Redraw});
+    }
+    // The kept calls, only those there now: what they keep in turn waits for the next post (their
+    // Check posts it), so a chain yields to input and painting between rounds and the engine's hop
+    // limit ends a loop.
+    size_t n = engine_ ? engine_->DeferredCalls() : 0;
+    bool ran = false;
+    while (n-- > 0 && state_ == State::Ok && engine_ && engine_->DeferredCalls() > 0) {
+        std::string what;
+        const ScriptResult r = engine_->RunDeferred(what);
+        ran = true;
+        if (!Check(r, what.c_str())) break;
+    }
+    if (ran && state_ == State::Ok) RequestRedraw();  // a kept tick() asked for one (its result is not known here)
+    KickDeferred();
 }
 
 void WidgetInstance::Fail(State state, const std::wstring& message) {
@@ -744,10 +880,20 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
         runtime_.CancelAll(this);
         runtime_.ReleaseProviders(this);
     }
-    // Never called again until a reload: give its heap back now (Fail only runs after a call into
-    // the script has returned).
-    engine_.reset();
-    ++generation_;
+    // Never called again until a reload: give its heap back now. Round 25 phase 25A: but not while
+    // one of its calls is on the stack (the old note here said Fail only runs after a call into the
+    // script has returned; a host call that led back into the same script broke that, freeing the
+    // runtime under the native function still running): the engine is retired and freed by
+    // RunDeferred once that call returned. The entries refuse nested calls now, so this is the
+    // defence behind that.
+    if (engine_ && engine_->Busy()) {
+        retired_ = std::move(engine_);
+    } else {
+        engine_.reset();
+    }
+    // afterCall_ stays: a shell.open asked for before the failure still opens (as it did when it
+    // ran inside the call); Check posts it.
+    generation_ = NextGeneration();
     requests_ = 0;
     if (PopupShown() || client_.WidgetPassiveShown(*this)) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
     if (!preview_) runtime_.NotifyChanged();
@@ -1080,6 +1226,10 @@ std::vector<std::string> WidgetInstance::PackageFiles() {
 
 void WidgetInstance::RenderPopup(ID2D1DeviceContext* dc, float w, float h, float scale) {
     if (state_ != State::Ok || !engine_) return;
+    if (InCall()) {  // round 25 phase 25A: as Render; RunDeferred asks for a popup redraw
+        popupRedrawAfterCall_ = true;
+        return;
+    }
     canvas_.Begin(dc, scale, w, h);
     inCanvas_ = true;
     const ScriptResult r = engine_->Call(ScriptEngine::Fn::DrawPopup, {});
@@ -1272,14 +1422,22 @@ bool WidgetInstance::ShellOpen(const std::wstring& target, const std::wstring& a
     if (preview_) return true;  // nothing opens in a preview (the script gets false)
     wchar_t expanded[MAX_PATH * 4]{};
     ExpandEnvironmentStringsW(target.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
-    AllowSetForegroundWindow(ASFW_ANY);
-    const auto rc = reinterpret_cast<INT_PTR>(
-        ShellExecuteW(nullptr, nullptr, expanded, args.empty() ? nullptr : args.c_str(), nullptr, SW_SHOWNORMAL));
-    if (rc <= 32) {
-        error = L"shell.open: could not open " + target + L" (" + std::to_wstring(rc) + L")";
+    // Round 25 phase 25A: ShellExecute runs after the call returns (RunDeferred), not inside it: it
+    // can pump messages (DDE, COM, its own error message box: a modal loop for as long as the box
+    // is up), and a timer, a posted result or a reload of this widget dispatched there ran inside
+    // the script's call (and the watchdog's deadline passed while the box was open). A target that
+    // cannot be opened is logged then instead of thrown.
+    if (afterCall_.size() >= kMaxAfterCall) {
+        error = L"shell.open: too many opens in one call";
         return false;
     }
-    Log(ScriptLogLevel::Info, L"shell.open " + target);
+    AfterCall a;
+    a.kind = AfterCall::Kind::ShellOpen;
+    a.target = expanded;
+    a.args = args;
+    a.shown = target;
+    afterCall_.push_back(std::move(a));
+    KickDeferred();  // posted now unless a call is on the stack (then its end posts it)
     return true;
 }
 
@@ -1698,10 +1856,21 @@ bool WidgetInstance::NotificationsCommand(const std::string& command, double id,
     } else if (command == "markRead") {
         n->MarkRead(nid);
     } else if (command == "activate") {
-        if (!client_.WidgetActivateNotification(nid)) {
+        // Round 25 phase 25A: checked now, done after the call returns (RunDeferred): starting the
+        // app goes through ShellExecuteEx, which can pump messages (see ShellOpen).
+        if (!n->ById(nid)) {
             error = L"notifications.activate: no such notification";
             return false;
         }
+        if (afterCall_.size() >= kMaxAfterCall) {
+            error = L"notifications.activate: too many in one call";
+            return false;
+        }
+        AfterCall a;
+        a.kind = AfterCall::Kind::Activate;
+        a.id = nid;
+        afterCall_.push_back(std::move(a));
+        KickDeferred();
     } else if (command == "openCentre") {
         if (!client_.WidgetOpenCentre(*this)) {
             error = L"notifications.openCentre: the dock cannot show its notification centre";

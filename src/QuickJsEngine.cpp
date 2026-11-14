@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cwctype>
+#include <deque>
 #include <map>
 #include <new>
 #include <string>
@@ -414,55 +415,13 @@ public:
     // --- ScriptEngine ---
     ScriptResult Load(const std::string& mainPath) override {
         ScriptResult res;
-        Enter(std::max<uint32_t>(limits_.timeLimitMs * 4, 200));  // parsing + top-level code
-        JSValue promise = JS_LoadModule(ctx_, "", mainPath.c_str(), JS_UNDEFINED);
-        if (JS_IsException(promise)) {
-            res = TakeException();
-            Leave();
+        if (depth_ > 0) {
+            res.status = ScriptStatus::Busy;
             return res;
         }
-        Pump(res);
-        if (res.Failed()) {
-            JS_FreeValue(ctx_, promise);
-            Leave();
-            return res;
-        }
-        const JSPromiseStateEnum state = JS_PromiseState(ctx_, promise);
-        JSValue value = JS_PromiseResult(ctx_, promise);
-        JS_FreeValue(ctx_, promise);
-        if (state == JS_PROMISE_REJECTED) {
-            JS_Throw(ctx_, value);
-            res = TakeException();
-            Leave();
-            return res;
-        }
-        if (state != JS_PROMISE_FULFILLED) {
-            JS_FreeValue(ctx_, value);
-            res.status = ScriptStatus::Threw;
-            res.error = L"the main module did not finish loading (a top-level await that never settles)";
-            Leave();
-            return res;
-        }
-        ns_ = value;  // the module namespace
-        static const char* const kNames[] = {"draw",      "measure",      "tick",         "onClick",
-                                             "onMiddleClick", "onWheel", "onHover",     "onSettingsChanged",
-                                             "onPress",   "onDrop",       "drawPopup",    "onPopupClick",
-                                             "onPopupClose", "onVisibilityChange", "onDrag", "onRelease"};
-        static_assert(std::size(kNames) == static_cast<size_t>(Fn::Count));
-        for (size_t i = 0; i < std::size(kNames); ++i) {
-            JSValue f = JS_GetPropertyStr(ctx_, ns_, kNames[i]);
-            if (JS_IsException(f)) {
-                JS_FreeValue(ctx_, JS_GetException(ctx_));
-                f = JS_UNDEFINED;
-            }
-            if (!JS_IsFunction(ctx_, f)) {
-                JS_FreeValue(ctx_, f);
-                f = JS_UNDEFINED;
-            }
-            fns_[i] = f;
-        }
-        ReportRejections();
-        Leave();
+        Scope scope(*this, std::max<uint32_t>(limits_.timeLimitMs * 4, 200));  // parsing + top-level code
+        res = LoadModule(mainPath);
+        res.ms = scope.Elapsed();
         return res;
     }
 
@@ -474,6 +433,25 @@ public:
             res.status = ScriptStatus::Missing;
             return res;
         }
+        if (depth_ > 0) {
+            switch (fn) {
+                case Fn::Draw:
+                case Fn::Measure:
+                case Fn::DrawPopup:
+                case Fn::OnWheel:
+                case Fn::OnPress:
+                    res.status = ScriptStatus::Busy;  // the host needs its result now: it cannot wait
+                    return res;
+                default: {
+                    Later l;
+                    l.kind = Later::Kind::Call;
+                    l.fn = fn;
+                    l.a = eventJson;
+                    return Defer(std::move(l));
+                }
+            }
+        }
+        Scope scope(*this, limits_.timeLimitMs);
         JSValue args[2] = {JS_UNDEFINED, JS_DupValue(ctx_, dock_)};
         switch (fn) {
             case Fn::Draw:
@@ -493,6 +471,7 @@ public:
         res = Invoke(fns_[static_cast<size_t>(fn)], 2, args);
         JS_FreeValue(ctx_, args[0]);
         JS_FreeValue(ctx_, args[1]);
+        res.ms = scope.Elapsed();
         return res;
     }
 
@@ -500,6 +479,13 @@ public:
         ScriptResult res;
         auto it = timers_.find(id);
         if (it == timers_.end()) return res;
+        if (depth_ > 0) {  // kept as it is (a one-shot is forgotten only when it really runs)
+            Later l;
+            l.kind = Later::Kind::Timer;
+            l.id = id;
+            return Defer(std::move(l));
+        }
+        Scope scope(*this, limits_.timeLimitMs);
         JSValue fn = JS_DupValue(ctx_, it->second.fn);
         if (!it->second.repeat) {
             JS_FreeValue(ctx_, it->second.fn);
@@ -507,6 +493,7 @@ public:
         }
         res = Invoke(fn, 0, nullptr);
         JS_FreeValue(ctx_, fn);
+        res.ms = scope.Elapsed();
         return res;
     }
 
@@ -514,6 +501,15 @@ public:
         ScriptResult res;
         auto it = pending_.find(id);
         if (it == pending_.end()) return res;
+        if (depth_ > 0) {
+            Later l;
+            l.kind = Later::Kind::Resolve;
+            l.id = id;
+            l.ok = ok;
+            l.a = json;
+            return Defer(std::move(l));
+        }
+        Scope scope(*this, limits_.timeLimitMs);
         const Pending p = it->second;
         pending_.erase(it);
         JSValue arg = JS_UNDEFINED;
@@ -540,7 +536,9 @@ public:
                         fulfil = false;
                     }
                 } else {
-                    JS_SetPropertyStr(ctx_, arg, "json", parsed);
+                    // Round 25 phase 25A: defined, not set (a setter the script put on
+                    // Object.prototype must not run here).
+                    JS_DefinePropertyValueStr(ctx_, arg, "json", parsed, JS_PROP_C_W_E);
                 }
             }
         } else {
@@ -555,6 +553,7 @@ public:
         JS_FreeValue(ctx_, arg);
         JS_FreeValue(ctx_, p.resolve);
         JS_FreeValue(ctx_, p.reject);
+        res.ms = scope.Elapsed();
         return res;
     }
 
@@ -562,6 +561,15 @@ public:
         ScriptResult res;
         auto it = settles_.find(id);
         if (it == settles_.end()) return res;
+        if (depth_ > 0) {
+            Later l;
+            l.kind = Later::Kind::Settle;
+            l.id = id;
+            l.ok = ok;
+            l.a = json;
+            return Defer(std::move(l));
+        }
+        Scope scope(*this, limits_.timeLimitMs);
         const Pending p = it->second;
         settles_.erase(it);
         JSValue arg = JS_UNDEFINED;
@@ -583,6 +591,7 @@ public:
         JS_FreeValue(ctx_, arg);
         JS_FreeValue(ctx_, p.resolve);
         JS_FreeValue(ctx_, p.reject);
+        res.ms = scope.Elapsed();
         return res;
     }
 
@@ -590,17 +599,31 @@ public:
         JSValue s = ParseSettings();
         JS_FreeValue(ctx_, settings_);
         settings_ = s;
+        // Round 25 phase 25A: defined, not set: a script that made the global `settings` an
+        // accessor must not get its setter run here, outside any call (no watchdog: an endless
+        // setter hung the UI thread). A non-configurable one stays as the script left it.
         JSValue global = JS_GetGlobalObject(ctx_);
-        JS_SetPropertyStr(ctx_, global, "settings", JS_DupValue(ctx_, settings_));
+        if (JS_DefinePropertyValueStr(ctx_, global, "settings", JS_DupValue(ctx_, settings_), JS_PROP_C_W_E) < 0) {
+            JS_FreeValue(ctx_, JS_GetException(ctx_));
+        }
         JS_FreeValue(ctx_, global);
     }
 
     ScriptResult Emit(const std::string& channel, const std::string& payload) override {
         if (!JS_IsFunction(ctx_, emit_)) return ScriptResult{};
+        if (depth_ > 0) {
+            Later l;
+            l.kind = Later::Kind::Emit;
+            l.a = channel;
+            l.b = payload;
+            return Defer(std::move(l));
+        }
+        Scope scope(*this, limits_.timeLimitMs);
         JSValue args[2] = {NewString(ctx_, channel), NewString(ctx_, payload)};
         ScriptResult res = Invoke(emit_, 2, args);
         JS_FreeValue(ctx_, args[0]);
         JS_FreeValue(ctx_, args[1]);
+        res.ms = scope.Elapsed();
         return res;
     }
 
@@ -610,6 +633,76 @@ public:
         return static_cast<size_t>(std::max<int64_t>(0, mu.malloc_size));
     }
 
+    bool Busy() const override { return depth_ > 0; }
+    size_t DeferredCalls() const override { return later_.size(); }
+
+    ScriptResult RunDeferred(std::string& what) override {
+        ScriptResult res;
+        if (depth_ > 0) {
+            res.status = ScriptStatus::Busy;
+            return res;
+        }
+        if (later_.empty()) return res;
+        Later l = std::move(later_.front());
+        later_.pop_front();
+        if (later_.empty()) overflowLogged_ = false;
+        what = WideToUtf8(LaterName(l));
+        // What this call defers in turn is one hop further down the chain (Defer).
+        const int saved = runningHops_;
+        runningHops_ = l.hops;
+        switch (l.kind) {
+            case Later::Kind::Call: res = Call(l.fn, l.a); break;
+            case Later::Kind::Timer: res = FireTimer(l.id); break;
+            case Later::Kind::Resolve: res = Resolve(l.id, l.ok, l.a); break;
+            case Later::Kind::Settle: res = Settle(l.id, l.ok, l.a); break;
+            case Later::Kind::Emit: res = Emit(l.a, l.b); break;
+        }
+        runningHops_ = saved;
+        return res;
+    }
+
+private:
+    ScriptResult LoadModule(const std::string& mainPath) {
+        ScriptResult res;
+        JSValue promise = JS_LoadModule(ctx_, "", mainPath.c_str(), JS_UNDEFINED);
+        if (JS_IsException(promise)) return TakeException();
+        Pump(res);
+        if (res.Failed()) {
+            JS_FreeValue(ctx_, promise);
+            return res;
+        }
+        const JSPromiseStateEnum state = JS_PromiseState(ctx_, promise);
+        JSValue value = JS_PromiseResult(ctx_, promise);
+        JS_FreeValue(ctx_, promise);
+        if (state == JS_PROMISE_REJECTED) {
+            JS_Throw(ctx_, value);
+            return TakeException();
+        }
+        if (state != JS_PROMISE_FULFILLED) {
+            JS_FreeValue(ctx_, value);
+            res.status = ScriptStatus::Threw;
+            res.error = L"the main module did not finish loading (a top-level await that never settles)";
+            return res;
+        }
+        ns_ = value;  // the module namespace
+        static_assert(std::size(kExportNames) == static_cast<size_t>(Fn::Count));
+        for (size_t i = 0; i < std::size(kExportNames); ++i) {
+            JSValue f = JS_GetPropertyStr(ctx_, ns_, kExportNames[i]);
+            if (JS_IsException(f)) {
+                JS_FreeValue(ctx_, JS_GetException(ctx_));
+                f = JS_UNDEFINED;
+            }
+            if (!JS_IsFunction(ctx_, f)) {
+                JS_FreeValue(ctx_, f);
+                f = JS_UNDEFINED;
+            }
+            fns_[i] = f;
+        }
+        ReportRejections();
+        return res;
+    }
+
+public:
     // --- used by the native callbacks ---
     ScriptHost& host_;
     JSClassID pathClass_ = 0;
@@ -691,17 +784,123 @@ private:
     };
 
     // --- calls and the watchdog ---
-    void Enter(uint32_t limitMs) {
-        JS_UpdateStackTop(rt_);  // the UI thread's stack, from wherever this call is made
-        interrupted_ = false;
-        deadline_ = WidgetNowMs() + static_cast<double>(limitMs);
-        armed_ = true;
-    }
-    void Leave() { armed_ = false; }
+    // Round 25 phase 25A: one call into the script from the host, held by every entry (Load, Call,
+    // FireTimer, Resolve, Settle, Emit, the prelude) around everything that can run script code:
+    // the call and the jobs it queues, but also building its arguments and reading its result
+    // (getters, toJSON, toString and setters on prototypes are script code too), so the watchdog
+    // covers all of it. depth_ counts them. The entries refuse to start while depth_ > 0 (Defer /
+    // Busy), so a scope never nests in practice; if one did, the inner one could only shorten the
+    // deadline, and its end puts the outer call's deadline and armed state back. (Before, Enter /
+    // Leave were not nesting-aware: a nested call's Leave disarmed the watchdog for the rest of the
+    // outer call, so `notifications.dismissAll(); for (;;) {}` hung the UI thread.)
+    class Scope {
+    public:
+        Scope(QuickJsEngine& e, uint32_t limitMs)
+            : e_(e), savedDeadline_(e.deadline_), savedArmed_(e.armed_), start_(WidgetNowMs()) {
+            if (e_.depth_++ == 0) {
+                JS_UpdateStackTop(e_.rt_);  // the UI thread's stack, from wherever this call is made
+                e_.interrupted_ = false;
+            }
+            const double mine = start_ + static_cast<double>(limitMs);
+            e_.deadline_ = e_.armed_ ? std::min(e_.deadline_, mine) : mine;
+            e_.armed_ = true;
+        }
+        ~Scope() {
+            --e_.depth_;
+            e_.deadline_ = savedDeadline_;
+            e_.armed_ = savedArmed_;
+        }
+        Scope(const Scope&) = delete;
+        Scope& operator=(const Scope&) = delete;
+        // The wall time since the call started (ScriptResult::ms: the host's CPU budget).
+        double Elapsed() const { return WidgetNowMs() - start_; }
 
+    private:
+        QuickJsEngine& e_;
+        double savedDeadline_;
+        bool savedArmed_;
+        double start_;
+    };
+
+    // Round 25 phase 25A: a call that came while one was on the stack, kept for RunDeferred.
+    struct Later {
+        enum class Kind : uint8_t { Call, Timer, Resolve, Settle, Emit };
+        Kind kind = Kind::Call;
+        Fn fn = Fn::Count;  // Call
+        int id = 0;         // Timer / Resolve / Settle
+        bool ok = false;    // Resolve / Settle
+        std::string a;      // Call: the event JSON; Resolve / Settle: the JSON; Emit: the channel
+        std::string b;      // Emit: the payload
+        int hops = 0;       // how many RunDeferred rounds led to it (Defer)
+    };
+    // Bounds of the kept calls. 64 calls: a burst of distinct events (a click, a few http results,
+    // the six provider channels, a few timers) fits many times over; past it new ones are dropped
+    // (logged once). 8 hops: a listener whose own work triggers its channel again (onChange calling
+    // markRead, a calendar.onChange calling calendar.refresh) re-runs once per round through
+    // RunDeferred instead of recursing; a chain still going after 8 rounds is a loop, cut here
+    // with a warning (the queue posts itself, so without the cut such a widget would keep the UI
+    // thread busy for ever, one posted message at a time).
+    static constexpr size_t kMaxLater = 64;
+    static constexpr int kMaxHops = 8;
+
+    // Calls whose latest event replaces an earlier kept one (only the newest state matters).
+    static bool Coalesces(Fn fn) {
+        return fn == Fn::Tick || fn == Fn::OnHover || fn == Fn::OnDrag || fn == Fn::OnVisibilityChange ||
+               fn == Fn::OnSettingsChanged;
+    }
+
+    std::wstring LaterName(const Later& l) const {
+        switch (l.kind) {
+            case Later::Kind::Call: return Utf8ToWide(std::string(kExportNames[static_cast<size_t>(l.fn)]) + "()");
+            case Later::Kind::Timer: return L"a timer callback";
+            case Later::Kind::Resolve: return L"an http callback";
+            case Later::Kind::Settle: return L"an editText callback";
+            case Later::Kind::Emit:
+            default: return Utf8ToWide(l.a == "calendarReminder" ? std::string("calendar.onReminder") : l.a + ".onChange");
+        }
+    }
+
+    // Keeps `l` (the engine is busy): one per timer / request / provider channel and payload, the
+    // latest event of a coalescing export; bounded (kMaxLater, kMaxHops).
+    ScriptResult Defer(Later l) {
+        ScriptResult res;
+        res.status = ScriptStatus::Deferred;
+        l.hops = runningHops_ + 1;
+        for (Later& q : later_) {
+            if (q.kind != l.kind) continue;
+            bool same = false;
+            switch (l.kind) {
+                case Later::Kind::Call: same = q.fn == l.fn && Coalesces(l.fn); break;
+                case Later::Kind::Timer:
+                case Later::Kind::Resolve:
+                case Later::Kind::Settle: same = q.id == l.id; break;
+                case Later::Kind::Emit: same = q.a == l.a && q.b == l.b; break;
+            }
+            if (!same) continue;
+            if (l.kind == Later::Kind::Call) q.a = std::move(l.a);  // the newest event, in the old one's place
+            return res;
+        }
+        if (l.hops > kMaxHops) {
+            host_.Log(ScriptLogLevel::Warn, LaterName(l) + L" was triggered again from inside its own callbacks " +
+                                                std::to_wstring(kMaxHops) + L" times in a row: this one is dropped");
+            return res;
+        }
+        if (later_.size() >= kMaxLater) {
+            if (!overflowLogged_) {
+                host_.Log(ScriptLogLevel::Warn, L"more than " + std::to_wstring(kMaxLater) +
+                                                    L" calls arrived while the script was busy: " + LaterName(l) +
+                                                    L" and later ones are dropped");
+            }
+            overflowLogged_ = true;
+            return res;
+        }
+        later_.push_back(std::move(l));
+        return res;
+    }
+
+    // The call itself; the caller holds a Scope.
     ScriptResult Invoke(JSValueConst fn, int argc, JSValueConst* argv) {
         ScriptResult res;
-        Enter(limits_.timeLimitMs);
         JSValue r = JS_Call(ctx_, fn, JS_UNDEFINED, argc, argv);
         if (JS_IsException(r)) {
             res = TakeException();
@@ -712,7 +911,12 @@ private:
                 } else {
                     JSValue s = JS_JSONStringify(ctx_, r, JS_UNDEFINED, JS_UNDEFINED);
                     if (JS_IsException(s)) {
-                        JS_FreeValue(ctx_, JS_GetException(ctx_));
+                        // A toJSON stopped by the watchdog is a timeout (25A); any other error drops the value.
+                        if (interrupted_) {
+                            res = TakeException();
+                        } else {
+                            JS_FreeValue(ctx_, JS_GetException(ctx_));
+                        }
                     } else if (!JS_IsUndefined(s)) {
                         res.json = ToStd(ctx_, s);
                     }
@@ -723,7 +927,6 @@ private:
             Pump(res);
         }
         ReportRejections();
-        Leave();
         return res;
     }
 
@@ -891,6 +1094,18 @@ private:
     };
     std::unordered_map<int, Pending> pending_;  // http requests in flight
     std::unordered_map<int, Pending> settles_;  // host requests in flight (popup.editText)
+    // Round 25 phase 25A: calls into the script on the stack (Scope), the calls kept meanwhile
+    // (Defer), the hops of the kept call RunDeferred is running (0: a call straight from the host).
+    int depth_ = 0;
+    std::deque<Later> later_;
+    int runningHops_ = 0;
+    bool overflowLogged_ = false;  // the "more than 64 calls" warning, once until the queue empties
+
+    // The exports by Fn, in its order (tools\check_widget_docs.py reads this list: keep the
+    // "const char* const k...Names[]" form).
+    static constexpr const char* const kExportNames[] = {
+        "draw",    "measure", "tick",      "onClick",      "onMiddleClick", "onWheel",            "onHover", "onSettingsChanged",
+        "onPress", "onDrop",  "drawPopup", "onPopupClick", "onPopupClose",  "onVisibilityChange", "onDrag",  "onRelease"};
 };
 
 // --- canvas ------------------------------------------------------------------------------------
@@ -2288,9 +2503,11 @@ bool QuickJsEngine::InstallApi() {
     JS_SetPropertyStr(ctx_, global, "__windock", native);
     JS_FreeValue(ctx_, global);
 
-    Enter(1000);
-    JSValue r = JS_Eval(ctx_, kPrelude, sizeof(kPrelude) - 1, "<windock>", JS_EVAL_TYPE_GLOBAL);
-    Leave();
+    JSValue r = JS_UNDEFINED;
+    {
+        Scope scope(*this, 1000);
+        r = JS_Eval(ctx_, kPrelude, sizeof(kPrelude) - 1, "<windock>", JS_EVAL_TYPE_GLOBAL);
+    }
     if (JS_IsException(r)) {
         host_.Log(ScriptLogLevel::Error, L"prelude: " + TakeException().error);
         return false;

@@ -40,6 +40,15 @@ public:
     static constexpr UINT kWatchMessage = WM_APP + 31;  // wParam: folder index, lParam: generation
     static constexpr UINT kWatchSyncMessage = WM_APP + 32;  // posted: re-read the watched folders
     static constexpr UINT kStorageMessage = WM_APP + 36;    // posted: storage.onChange deliveries (coalesced)
+    // Round 25 phase 25A: posted (coalesced): WidgetInstance::RunDeferred for the instances that
+    // kept work while one of their calls was on the stack (PostDeferred). No timer.
+    static constexpr UINT kDeferredMessage = WM_APP + 75;
+    // Round 25 phase 25A (A6): OnTimer runs due timers back to back for at most this long (the first
+    // always runs), then re-arms for the rest, so input and painting get a turn between them (a
+    // WM_TIMER is only generated when the queue is otherwise empty). 6 ms: a second's worth of
+    // aligned clock ticks of a few widgets (well under a millisecond each) still fits in one pass;
+    // 64 timers just under the watchdog's limit no longer run as one 3-second block.
+    static constexpr double kTimerSliceMs = 6.0;
     static constexpr DWORD kSaveDelayMs = 1000;
     static constexpr DWORD kReloadDelayMs = 250;
     static constexpr size_t kMaxStorageBytes = 1u << 20;  // per widget id
@@ -72,7 +81,9 @@ public:
 
     // --- http ---
     // Runs `request` on a worker thread; the result comes back as WidgetInstance::OnHttpResult(id)
-    // if `w` (with the same generation) still exists. False if the thread could not start.
+    // if `w` (with the same generation) still exists. False if the thread could not start. Round 25
+    // phase 25A: the pointer alone is not an identity (a new instance may get a freed one's
+    // address); the generation is, being process-wide (WidgetInstance::generation_).
     bool StartHttp(WidgetInstance* w, uint64_t generation, int id, Http::Request request);
 
     // --- watched folders ---
@@ -103,6 +114,9 @@ public:
 
     void Add(WidgetInstance* w);
     void Remove(WidgetInstance* w);
+    // Round 25 phase 25A: `w` kept work while a call into its script was on the stack: its
+    // RunDeferred runs from a posted kDeferredMessage (coalesced; dropped if `w` goes first).
+    void PostDeferred(WidgetInstance* w);
     const std::vector<WidgetInstance*>& Instances() const { return instances_; }
     bool Alive(const WidgetInstance* w) const;
     // Every widget instance reloads its package and script.
@@ -206,6 +220,8 @@ private:
     };
     std::vector<StorageNote> storageNotes_;
     bool storagePosted_ = false;
+    std::vector<WidgetInstance*> deferred_;  // round 25 phase 25A: RunDeferred wanted (live ones; Remove erases)
+    bool deferredPosted_ = false;
     uint64_t storageNotices_ = 0;
     void OnHttpResult(LPARAM lp);
     void DoSyncWatch();

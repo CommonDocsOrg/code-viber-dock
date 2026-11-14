@@ -1949,6 +1949,28 @@ on a bottom and a left dock through QueryState 343 - 355 and ItemCommand 870 / 8
 run (it takes over the tray on the live desktop); the round ends build only with a manual check
 list in STATUS.md, as rounds 22 and 23 did.
 
+## Round 25 (2026-11-13): hardening
+
+From the user: a review of the whole program (by reading: three agents for security and
+robustness, performance and dock bugs, UX / features / widgets / styles), then "hardening first".
+The report and the order of the rounds after it are in
+`C:\Users\olson\.claude\plans\carefully-review-all-aspects-glittery-pony.md`. Two answers shape the
+round: widgets written by other people are expected, so the script sandbox is a security boundary
+and not only a convenience; the product's name is ViberDock wherever the user sees one (round 27).
+Branch `feature/hardening`.
+
+**25A, the script engine.** The rule is now "no call into an instance's script starts while one of
+its calls is on the stack", enforced at the one place every entry passes (`QuickJsEngine.cpp`
+`Scope`), not per provider: a provider that reports a change synchronously (notifications, the
+calendar's refresh) or a host call that pumps messages (`ShellExecute`) would otherwise each need
+their own guard, and the next one added would be forgotten. What cannot start is kept and run from
+a posted message (so input and painting come first), except the calls whose result is needed at
+once (draw, measure, wheel, press), which are refused and made up for by a redraw. Loops are
+bounded twice: repeats coalesce, and a chain of calls that re-trigger one another is cut after 8
+rounds. The watchdog only ever bounded one call; a CPU budget over ten seconds (half the thread)
+bounds their sum, and the timer pass yields after 6 ms. Tried and kept out: suspending by timer
+count or frequency alone (the sweeping clocks legitimately run at 16 ms).
+
 ## Dependencies at a glance
 
 ```
