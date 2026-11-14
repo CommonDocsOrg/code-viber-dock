@@ -1441,7 +1441,19 @@ write and edit without compiling anything. The full reference (every call, every
   Network & internet settings), **Input language** (`input-language`, round 27: the taskbar's
   language indicator, "ENG" with the region under it when two layouts share a language; a click
   switches to the next layout (Windows + Space), the popup lists the layouts and selects one;
-  optionally no room with a single layout), and
+  optionally no room with a single layout), the round 28 pack: **Timer** (`timer`: a countdown
+  with presets, Pomodoro rounds, a stopwatch or a countdown to a date, a progress ring / bar / the
+  time alone; end timestamps in storage, so it survives a restart; one `setTimeout` for the end
+  and `notify.banner` (optional sound) when it ends, also on a hidden dock; a refresh each second
+  only while running and seen), **World clock** (`world-clock`: up to six Windows time zones with
+  names, one or two on the tile, the popup with each place's day and offset; ticks on the minute),
+  **To-do** (`todo`: the open count on the tile; the popup ticks off, deletes, adds through
+  `popup.editText`, clears the done ones; widget storage, a shared List id), **Moon phase**
+  (`moon`: the moon drawn with its terminator, the phase name or illumination beside it; the popup
+  with the age and the next four principal phases from Meeus' algorithm; hourly), **Quick buttons**
+  (`quick-buttons`: 1 - 6 buttons for quick settings, Task view, clipboard history, a snip, the
+  notification centre, the desktop, emoji, Explorer, Settings, Search, the virtual desktops, Cast,
+  Task Manager, Lock; Segoe Fluent Icons glyphs), and
   **Agenda** (`agenda`: the next event of the calendar feeds, "In 25 min" / "Now" / its time over
   its title with the feed's colour; a click shows the next events in a popup, the month calendar or
   an app / address; it wakes only when its text changes: at an event's start and end, each minute

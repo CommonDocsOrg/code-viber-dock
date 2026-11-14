@@ -58,6 +58,17 @@
 #define IDR_WIDGET_NETWORK_MAIN 378
 #define IDR_WIDGET_INPUTLANG_JSON 379
 #define IDR_WIDGET_INPUTLANG_MAIN 380
+// Round 28 phase 28B: the widgets pack (381 - 390).
+#define IDR_WIDGET_TIMER_JSON 381
+#define IDR_WIDGET_TIMER_MAIN 382
+#define IDR_WIDGET_WORLDCLOCK_JSON 383
+#define IDR_WIDGET_WORLDCLOCK_MAIN 384
+#define IDR_WIDGET_TODO_JSON 385
+#define IDR_WIDGET_TODO_MAIN 386
+#define IDR_WIDGET_MOON_JSON 387
+#define IDR_WIDGET_MOON_MAIN 388
+#define IDR_WIDGET_QUICKBUTTONS_JSON 389
+#define IDR_WIDGET_QUICKBUTTONS_MAIN 390
 
 // Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
 // them in this order).

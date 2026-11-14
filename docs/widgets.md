@@ -1632,6 +1632,30 @@ built-ins are worked examples too:
   `hideSingle` (default off): with one layout `measure()` returns `main` 0. Settings `region`,
   `showName`, `scale`, `font`, `textColor`, `nameColor`, `click`, `middleClick`, `hideSingle`.
   Permission `input`.
+- `widgets/timer` ("Timer", round 28 phase 28B): `mode` `countdown` / `pomodoro` / `stopwatch` /
+  `date`, one state per item in `storage` (`"timer:" + (timerId || dock.itemKey)`) holding **end
+  timestamps** (`endAt`, a stopwatch's `startAt`), never a tick count: it survives a restart, and
+  one that ended while the dock was quit says so once on load. While running it calls
+  `timer.setRefresh(1000)` (paused by the host while unseen), stopped `setRefresh(0)`; the end is
+  one `setTimeout` (at most 6 hours ahead, re-armed), which also runs on a hidden dock, and raises
+  `notify.banner` (`banner`, `sound` settings). A countdown to a date ticks once a minute while
+  seen, each second in its last hour. Popup: Start / Pause, Reset, Skip (Pomodoro), the
+  `presets` chips; `onMiddleClick` starts / pauses; `onWheel` changes a stopped countdown by a
+  minute. Permission `notify`.
+- `widgets/world-clock` ("World clock"): up to six `timezone` fields (`zone1` - `zone6`, Windows
+  zone keys) with names; `system.formatTime(false, zone)` / `system.localTime(zone)` for each
+  (no Date arithmetic across zones); `refreshMs` 60000 (the shared, minute-aligned tick); the
+  popup's day offset from comparing `system.now()` with `system.localTime(zone)`.
+- `widgets/todo` ("To-do"): a list in `storage` (`"todo:" + (listId || dock.itemKey)`, shared
+  through `storage.onChange`), `popup.editText({ multiline: false })` to add, a paged popup (10
+  rows) that `popup.open` resizes to the list. Nothing runs while idle.
+- `widgets/moon` ("Moon phase"): Meeus' principal phases (Astronomical Algorithms ch. 49, the
+  larger periodic terms) and the lunation fraction; the lit part drawn as a semicircle plus the
+  terminator (a half ellipse of two cubic beziers); `hemisphere` mirrors it; `refreshMs` 3600000.
+- `widgets/quick-buttons` ("Quick buttons"): 1 - 6 buttons, each a `shell.sendKeys` name of the
+  allow-list or `shell.open` (`ms-settings:`, `rundll32.exe user32.dll,LockWorkStation`); icons
+  drawn with `canvas.text` in the `Segoe Fluent Icons` font (two as paths). `onPress` (not
+  claimed) shows the pressed tile. Permission `shell`.
 
 A minimal widget:
 

@@ -411,6 +411,11 @@ ViberDock comes with these widgets:
 - **Notification bell**: a bell like the notification centre, with more choices.
 - **Network**: the network icon of the taskbar: Wi-Fi with its signal, ethernet, cellular or a VPN, and whether there is internet. See [Network](#network).
 - **Input language**: the keyboard language indicator of the taskbar (ENG, DEU …). A click switches to the next layout. See [Input language](#input-language).
+- **Timer**: a countdown timer, a Pomodoro timer, a stopwatch or a countdown to a date, with a banner when it ends. See [Timer](#timer).
+- **World clock**: the time in up to six places; the tile shows one or two of them, a click lists them all with their day. See [World clock](#world-clock).
+- **To-do**: a short to-do list. The tile shows how many things are open; a click opens the list. See [To-do](#to-do).
+- **Moon phase**: tonight's moon as it looks. A click shows the phase, how much is lit and the dates of the next phases.
+- **Quick buttons**: a row of up to six buttons for Windows' own tools. See [Quick buttons](#quick-buttons).
 - **Hello**: a tiny example widget.
 
 The System monitor can also show any sensor of HWiNFO (temperatures, fans, power) while HWiNFO runs with its shared memory turned on. See [Performance and memory](troubleshooting.md#performance-and-memory).
@@ -441,6 +446,42 @@ The taskbar's language indicator (ENG, DEU, FRA …) disappears with the taskbar
 - **Take no room while only one layout is installed** hides the widget when there is nothing to switch.
 
 Some apps, such as apps that run as administrator, do not accept a switch from the list; the next layout (a click) works there. The widget follows the language of the window you work in. It does not show an input method's own modes (for example the Japanese あ / A).
+
+### Timer
+
+The Timer widget counts down, up or to a date. Pick its **Kind** in its settings (also in its right-click menu):
+
+- **Countdown timer**: runs for the **Length** you set. The popup has buttons for your **Presets** (1, 3, 5, 10, 15 and 30 minutes to start with): a click on one starts it. Over a stopped timer the mouse wheel adds or takes away a minute.
+- **Pomodoro**: work periods and breaks in a set (25 minutes of work, 5-minute breaks, a 15-minute break after the fourth work period, to start with). **Start the next period by itself** goes on without waiting for you. The ring turns green during a break; **Skip** in the popup goes to the next period.
+- **Stopwatch**: counts up from zero. The ring goes round once a minute.
+- **Countdown to a date**: the days and hours left until the **Date and time** you enter, written as 2027-01-01 18:30 (your local time).
+
+A click opens the popup with **Start** / **Pause** and **Reset**; a middle click starts or pauses. When a countdown or a period ends, a banner beside the dock says so (also while the dock is hidden), with a sound if **Play a sound with the banner** is on. Over a full-screen game or video the banner waits until you leave it. A running timer keeps counting while ViberDock is closed: start it again and it shows the right time, or says when it ended.
+
+Under Appearance, **Style** chooses a progress ring with the time inside, the time with a bar under it, or the time alone. Each item has its own timer; give two items the same **Timer id** to show one timer in two places.
+
+A date across a change to or from daylight saving time can show an hour off.
+
+### World clock
+
+The World clock widget shows the time in other places. Under **Places** pick up to six time zones (the same list as Windows' own time zone setting) and give each a name; a zone left on "Local time" is skipped. **Places on the tile** shows the first one, or the first two as two rows. A click opens a list of them all with the time here, each place's day (Today, Tomorrow, Yesterday) and how many hours it is ahead or behind. Daylight saving time comes from Windows. **Time format** follows your Windows format, or always shows 24-hour or 12-hour times.
+
+### To-do
+
+The To-do widget keeps a short list. The tile shows a check box and the number of things still open (the box is ticked when everything is done). A click opens the list:
+
+- Click a thing (or its box) to tick it off; click again to bring it back.
+- The × at the end of a row deletes it.
+- **+ Add** opens a small box to type a new one; Enter adds it.
+- **Clear done** removes the ticked ones.
+
+Ten rows show at a time; the arrows at the bottom page through a longer list. Each item has its own list; give two items the same **List id** to share one, on any dock or the desktop.
+
+### Quick buttons
+
+The Quick buttons widget is a row of up to six buttons (a column on a left or right dock). Set **Buttons** to the number you want and choose what each one opens: Quick settings, Task view, Clipboard history, a screen snip, the notification centre, Show desktop, the emoji panel, File Explorer, Settings, Search, the previous or next virtual desktop, Cast, Task Manager or Lock. Most buttons press the Windows shortcut for you (the name in the list shows which), so they do what the shortcut does on your PC. **Style** puts each icon on a small tile or shows the icons alone.
+
+The emoji panel types into the window you were working in, not into the dock.
 
 ### Widget settings
 

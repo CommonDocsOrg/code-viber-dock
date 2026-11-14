@@ -1,0 +1,554 @@
+{
+  "name": "Quick buttons",
+  "version": "1.0.0",
+  "author": "ViberDock",
+  "description": "A row of up to six buttons for Windows' own tools: quick settings, Task view, clipboard history, a screen snip, the notification centre, the desktop, the emoji panel, File Explorer, Settings, Search, the virtual desktops, Cast, Task Manager or Lock. Choose each button in the settings.",
+  "api": 1,
+  "size": {
+    "horizontal": {
+      "main": 140,
+      "cross": 48
+    },
+    "vertical": {
+      "main": 140,
+      "cross": 48
+    }
+  },
+  "standalone": {
+    "minWidth": 48,
+    "minHeight": 32,
+    "defaultWidth": 200,
+    "defaultHeight": 56
+  },
+  "permissions": [
+    "shell"
+  ],
+  "settings": [
+    {
+      "key": "count",
+      "section": "content",
+      "group": "Buttons",
+      "common": true,
+      "type": "int",
+      "label": "Buttons",
+      "default": 4,
+      "min": 1,
+      "max": 6,
+      "description": "How many buttons the row has (1 - 6)."
+    },
+    {
+      "key": "button1",
+      "section": "content",
+      "group": "Buttons",
+      "type": "choice",
+      "label": "Button 1",
+      "default": "quick",
+      "description": "What the button opens. The keys are pressed as if you typed them.",
+      "choices": [
+        {
+          "value": "quick",
+          "label": "Quick settings (Windows + A)"
+        },
+        {
+          "value": "taskview",
+          "label": "Task view (Windows + Tab)"
+        },
+        {
+          "value": "clipboard",
+          "label": "Clipboard history (Windows + V)"
+        },
+        {
+          "value": "snip",
+          "label": "Snip a part of the screen (Windows + Shift + S)"
+        },
+        {
+          "value": "notifications",
+          "label": "Notification centre (Windows + N)"
+        },
+        {
+          "value": "desktop",
+          "label": "Show desktop (Windows + D)"
+        },
+        {
+          "value": "emoji",
+          "label": "Emoji panel (Windows + .)"
+        },
+        {
+          "value": "explorer",
+          "label": "File Explorer (Windows + E)"
+        },
+        {
+          "value": "settings",
+          "label": "Settings"
+        },
+        {
+          "value": "search",
+          "label": "Search (Windows + S)"
+        },
+        {
+          "value": "deskprev",
+          "label": "Previous virtual desktop (Windows + Ctrl + Left)"
+        },
+        {
+          "value": "desknext",
+          "label": "Next virtual desktop (Windows + Ctrl + Right)"
+        },
+        {
+          "value": "cast",
+          "label": "Cast (Windows + K)"
+        },
+        {
+          "value": "taskmgr",
+          "label": "Task Manager (Ctrl + Shift + Esc)"
+        },
+        {
+          "value": "lock",
+          "label": "Lock the PC"
+        }
+      ],
+      "common": true
+    },
+    {
+      "key": "button2",
+      "section": "content",
+      "group": "Buttons",
+      "type": "choice",
+      "label": "Button 2",
+      "default": "taskview",
+      "description": "What the button opens. The keys are pressed as if you typed them.",
+      "choices": [
+        {
+          "value": "quick",
+          "label": "Quick settings (Windows + A)"
+        },
+        {
+          "value": "taskview",
+          "label": "Task view (Windows + Tab)"
+        },
+        {
+          "value": "clipboard",
+          "label": "Clipboard history (Windows + V)"
+        },
+        {
+          "value": "snip",
+          "label": "Snip a part of the screen (Windows + Shift + S)"
+        },
+        {
+          "value": "notifications",
+          "label": "Notification centre (Windows + N)"
+        },
+        {
+          "value": "desktop",
+          "label": "Show desktop (Windows + D)"
+        },
+        {
+          "value": "emoji",
+          "label": "Emoji panel (Windows + .)"
+        },
+        {
+          "value": "explorer",
+          "label": "File Explorer (Windows + E)"
+        },
+        {
+          "value": "settings",
+          "label": "Settings"
+        },
+        {
+          "value": "search",
+          "label": "Search (Windows + S)"
+        },
+        {
+          "value": "deskprev",
+          "label": "Previous virtual desktop (Windows + Ctrl + Left)"
+        },
+        {
+          "value": "desknext",
+          "label": "Next virtual desktop (Windows + Ctrl + Right)"
+        },
+        {
+          "value": "cast",
+          "label": "Cast (Windows + K)"
+        },
+        {
+          "value": "taskmgr",
+          "label": "Task Manager (Ctrl + Shift + Esc)"
+        },
+        {
+          "value": "lock",
+          "label": "Lock the PC"
+        }
+      ],
+      "visibleIf": {
+        "count": [
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      "common": true
+    },
+    {
+      "key": "button3",
+      "section": "content",
+      "group": "Buttons",
+      "type": "choice",
+      "label": "Button 3",
+      "default": "clipboard",
+      "description": "What the button opens. The keys are pressed as if you typed them.",
+      "choices": [
+        {
+          "value": "quick",
+          "label": "Quick settings (Windows + A)"
+        },
+        {
+          "value": "taskview",
+          "label": "Task view (Windows + Tab)"
+        },
+        {
+          "value": "clipboard",
+          "label": "Clipboard history (Windows + V)"
+        },
+        {
+          "value": "snip",
+          "label": "Snip a part of the screen (Windows + Shift + S)"
+        },
+        {
+          "value": "notifications",
+          "label": "Notification centre (Windows + N)"
+        },
+        {
+          "value": "desktop",
+          "label": "Show desktop (Windows + D)"
+        },
+        {
+          "value": "emoji",
+          "label": "Emoji panel (Windows + .)"
+        },
+        {
+          "value": "explorer",
+          "label": "File Explorer (Windows + E)"
+        },
+        {
+          "value": "settings",
+          "label": "Settings"
+        },
+        {
+          "value": "search",
+          "label": "Search (Windows + S)"
+        },
+        {
+          "value": "deskprev",
+          "label": "Previous virtual desktop (Windows + Ctrl + Left)"
+        },
+        {
+          "value": "desknext",
+          "label": "Next virtual desktop (Windows + Ctrl + Right)"
+        },
+        {
+          "value": "cast",
+          "label": "Cast (Windows + K)"
+        },
+        {
+          "value": "taskmgr",
+          "label": "Task Manager (Ctrl + Shift + Esc)"
+        },
+        {
+          "value": "lock",
+          "label": "Lock the PC"
+        }
+      ],
+      "visibleIf": {
+        "count": [
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    {
+      "key": "button4",
+      "section": "content",
+      "group": "Buttons",
+      "type": "choice",
+      "label": "Button 4",
+      "default": "snip",
+      "description": "What the button opens. The keys are pressed as if you typed them.",
+      "choices": [
+        {
+          "value": "quick",
+          "label": "Quick settings (Windows + A)"
+        },
+        {
+          "value": "taskview",
+          "label": "Task view (Windows + Tab)"
+        },
+        {
+          "value": "clipboard",
+          "label": "Clipboard history (Windows + V)"
+        },
+        {
+          "value": "snip",
+          "label": "Snip a part of the screen (Windows + Shift + S)"
+        },
+        {
+          "value": "notifications",
+          "label": "Notification centre (Windows + N)"
+        },
+        {
+          "value": "desktop",
+          "label": "Show desktop (Windows + D)"
+        },
+        {
+          "value": "emoji",
+          "label": "Emoji panel (Windows + .)"
+        },
+        {
+          "value": "explorer",
+          "label": "File Explorer (Windows + E)"
+        },
+        {
+          "value": "settings",
+          "label": "Settings"
+        },
+        {
+          "value": "search",
+          "label": "Search (Windows + S)"
+        },
+        {
+          "value": "deskprev",
+          "label": "Previous virtual desktop (Windows + Ctrl + Left)"
+        },
+        {
+          "value": "desknext",
+          "label": "Next virtual desktop (Windows + Ctrl + Right)"
+        },
+        {
+          "value": "cast",
+          "label": "Cast (Windows + K)"
+        },
+        {
+          "value": "taskmgr",
+          "label": "Task Manager (Ctrl + Shift + Esc)"
+        },
+        {
+          "value": "lock",
+          "label": "Lock the PC"
+        }
+      ],
+      "visibleIf": {
+        "count": [
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    {
+      "key": "button5",
+      "section": "content",
+      "group": "Buttons",
+      "type": "choice",
+      "label": "Button 5",
+      "default": "desktop",
+      "description": "What the button opens. The keys are pressed as if you typed them.",
+      "choices": [
+        {
+          "value": "quick",
+          "label": "Quick settings (Windows + A)"
+        },
+        {
+          "value": "taskview",
+          "label": "Task view (Windows + Tab)"
+        },
+        {
+          "value": "clipboard",
+          "label": "Clipboard history (Windows + V)"
+        },
+        {
+          "value": "snip",
+          "label": "Snip a part of the screen (Windows + Shift + S)"
+        },
+        {
+          "value": "notifications",
+          "label": "Notification centre (Windows + N)"
+        },
+        {
+          "value": "desktop",
+          "label": "Show desktop (Windows + D)"
+        },
+        {
+          "value": "emoji",
+          "label": "Emoji panel (Windows + .)"
+        },
+        {
+          "value": "explorer",
+          "label": "File Explorer (Windows + E)"
+        },
+        {
+          "value": "settings",
+          "label": "Settings"
+        },
+        {
+          "value": "search",
+          "label": "Search (Windows + S)"
+        },
+        {
+          "value": "deskprev",
+          "label": "Previous virtual desktop (Windows + Ctrl + Left)"
+        },
+        {
+          "value": "desknext",
+          "label": "Next virtual desktop (Windows + Ctrl + Right)"
+        },
+        {
+          "value": "cast",
+          "label": "Cast (Windows + K)"
+        },
+        {
+          "value": "taskmgr",
+          "label": "Task Manager (Ctrl + Shift + Esc)"
+        },
+        {
+          "value": "lock",
+          "label": "Lock the PC"
+        }
+      ],
+      "visibleIf": {
+        "count": [
+          5,
+          6
+        ]
+      }
+    },
+    {
+      "key": "button6",
+      "section": "content",
+      "group": "Buttons",
+      "type": "choice",
+      "label": "Button 6",
+      "default": "emoji",
+      "description": "What the button opens. The keys are pressed as if you typed them.",
+      "choices": [
+        {
+          "value": "quick",
+          "label": "Quick settings (Windows + A)"
+        },
+        {
+          "value": "taskview",
+          "label": "Task view (Windows + Tab)"
+        },
+        {
+          "value": "clipboard",
+          "label": "Clipboard history (Windows + V)"
+        },
+        {
+          "value": "snip",
+          "label": "Snip a part of the screen (Windows + Shift + S)"
+        },
+        {
+          "value": "notifications",
+          "label": "Notification centre (Windows + N)"
+        },
+        {
+          "value": "desktop",
+          "label": "Show desktop (Windows + D)"
+        },
+        {
+          "value": "emoji",
+          "label": "Emoji panel (Windows + .)"
+        },
+        {
+          "value": "explorer",
+          "label": "File Explorer (Windows + E)"
+        },
+        {
+          "value": "settings",
+          "label": "Settings"
+        },
+        {
+          "value": "search",
+          "label": "Search (Windows + S)"
+        },
+        {
+          "value": "deskprev",
+          "label": "Previous virtual desktop (Windows + Ctrl + Left)"
+        },
+        {
+          "value": "desknext",
+          "label": "Next virtual desktop (Windows + Ctrl + Right)"
+        },
+        {
+          "value": "cast",
+          "label": "Cast (Windows + K)"
+        },
+        {
+          "value": "taskmgr",
+          "label": "Task Manager (Ctrl + Shift + Esc)"
+        },
+        {
+          "value": "lock",
+          "label": "Lock the PC"
+        }
+      ],
+      "visibleIf": {
+        "count": [
+          6
+        ]
+      }
+    },
+    {
+      "key": "style",
+      "section": "appearance",
+      "group": "Look",
+      "common": true,
+      "type": "choice",
+      "label": "Style",
+      "default": "tiles",
+      "description": "Each icon on a small rounded tile, or the icons alone.",
+      "choices": [
+        {
+          "value": "tiles",
+          "label": "Icons on tiles"
+        },
+        {
+          "value": "plain",
+          "label": "Icons only"
+        }
+      ]
+    },
+    {
+      "key": "scale",
+      "section": "appearance",
+      "group": "Look",
+      "type": "number",
+      "label": "Size",
+      "default": 1,
+      "min": 0.5,
+      "max": 2,
+      "step": 0.25,
+      "unit": "× the usual size",
+      "description": "1: each button about three quarters of an icon. Default: 1."
+    },
+    {
+      "key": "iconColor",
+      "section": "appearance",
+      "group": "Colours",
+      "type": "colour",
+      "label": "Icon colour",
+      "default": "#00000000",
+      "description": "Transparent (#00000000): the theme's text colour."
+    },
+    {
+      "key": "tileColor",
+      "section": "appearance",
+      "group": "Colours",
+      "type": "colour",
+      "label": "Tile colour",
+      "default": "#00000000",
+      "description": "The tiles behind the icons. Transparent (#00000000): a faint grey."
+    }
+  ]
+}

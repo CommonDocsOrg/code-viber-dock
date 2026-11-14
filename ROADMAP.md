@@ -2130,6 +2130,17 @@ would then speak for ViberDock in Windows' own UI). The round 26 pause was check
 only the refresh tick stops while a widget is unseen; script timers run, so a countdown's
 `setTimeout` still fires on a hidden dock.
 
+**28B, five widgets.** All script, no new host code. The Timer stores end timestamps instead of
+counting ticks (a tick count would drift and stop with the dock) and costs a redraw a second only
+while running and seen; its end is a single `setTimeout`. The World clock uses Windows' own time
+zones through the existing `timezone` setting and `system.localTime`: shipping IANA data or a
+mapping table was unnecessary, since the host already converts with Windows' daylight-saving rules
+(the brief asked for IANA names; the code already had the better tool). The To-do list reuses the
+Notes widget's `popup.editText`. The Moon is Meeus' algorithm in about 60 lines (minute accuracy,
+no data). The Quick buttons are the reason for 28A's keys; they stay a fixed list of actions
+rather than a free "keys" field, for the same reason the allow-list exists. Not done: a drive
+space widget (the API is there; System overview could show it later).
+
 ## Dependencies at a glance
 
 ```

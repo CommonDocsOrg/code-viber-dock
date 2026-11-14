@@ -77,6 +77,16 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"network", "main.js", IDR_WIDGET_NETWORK_MAIN},
     {L"input-language", "widget.json", IDR_WIDGET_INPUTLANG_JSON},  // round 27 phase 27C
     {L"input-language", "main.js", IDR_WIDGET_INPUTLANG_MAIN},
+    {L"timer", "widget.json", IDR_WIDGET_TIMER_JSON},  // round 28 phase 28B
+    {L"timer", "main.js", IDR_WIDGET_TIMER_MAIN},
+    {L"world-clock", "widget.json", IDR_WIDGET_WORLDCLOCK_JSON},
+    {L"world-clock", "main.js", IDR_WIDGET_WORLDCLOCK_MAIN},
+    {L"todo", "widget.json", IDR_WIDGET_TODO_JSON},
+    {L"todo", "main.js", IDR_WIDGET_TODO_MAIN},
+    {L"moon", "widget.json", IDR_WIDGET_MOON_JSON},
+    {L"moon", "main.js", IDR_WIDGET_MOON_MAIN},
+    {L"quick-buttons", "widget.json", IDR_WIDGET_QUICKBUTTONS_JSON},
+    {L"quick-buttons", "main.js", IDR_WIDGET_QUICKBUTTONS_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
