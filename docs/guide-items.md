@@ -438,14 +438,14 @@ The Headlines widget shows the newest items of a news feed. Open its settings an
 
 While ViberDock hides the taskbar, its network icon is gone with it. The Network widget puts it back on a dock (or on the desktop).
 
-- **Wi-Fi** shows as a dot and three arcs, lit up to the signal strength Windows reports (its bars).
+- **Wi-Fi** shows as a fan of four bands, lit up to the signal strength Windows reports (its bars).
 - **Ethernet** shows as a network plug, **cellular** as five rising bars, a **VPN** as a padlock.
 - A small red cross on the icon means you are connected but have **no internet**. A yellow exclamation mark means the network wants you to **sign in** (a hotel or airport Wi-Fi). A crossed-out globe means there is **no connection** at all.
 
 Its settings:
 
 - **Show a label beside the icon**: writes the network's name (or, with **Label** set to the state, Connected, No internet, Sign-in needed or Not connected) next to the icon.
-- **A click opens**: the widget's popup (the network's name, the kind of connection, its state, the signal, and buttons for **Network & internet settings** and **Quick settings**), Windows' quick settings (where you switch Wi-Fi networks), or the Network & internet settings page.
+- **A click opens**: the widget's popup (the network's name, the kind of connection, its state, the signal, and buttons for **Quick settings** and **Network settings**), Windows' quick settings (where you switch Wi-Fi networks), or the Network & internet settings page.
 - **Size**, **Font** and the colours of the icon, the label and the no-internet cross.
 
 The signal follows Windows' own bars. It is updated whenever the connection changes and when you click the widget, so it can lag behind a slowly changing signal. The widget does not ask Windows for your location: it never shows the "allow location" prompt that some Wi-Fi tools cause.

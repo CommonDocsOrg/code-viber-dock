@@ -1805,16 +1805,21 @@ built-ins are worked examples too:
   `click` `centre` (default: `notifications.openCentre()`) or `windows`
   (`shell.sendKeys('win+n')`); `badgeColor`, `image`. Permissions `shell`, `notifications`.
 - `widgets/network` ("Network", round 27 phase 27B): the [network](#network) provider as the
-  taskbar's icon, drawn with paths in one square of `dock.iconSize` x 0.5 x `scale`: Wi-Fi as a dot
-  and three arcs lit up to the signal (the 0 - 5 bars mapped to four steps, the rest at 28 %
-  opacity), an ethernet plug, five cellular bars, a padlock for a VPN, a globe otherwise; a cross
+  taskbar's icon, drawn with paths in one square of `dock.iconSize` x 0.5 x `scale`: Wi-Fi as a fan
+  (1.1.0: a filled wedge and three butt-capped bands, 0.96 of the square across; 1.0.0's dot and
+  three arcs were wider than the square) lit up to the signal (the 0 - 5 bars mapped to four steps,
+  the rest at 30 % opacity), an ethernet plug, five cellular bars, a padlock for a VPN, a globe otherwise; a cross
   badge (`warnColor`) without internet, an exclamation mark for a captive portal, a crossed globe
   without a connection. `showLabel` (default off) with `label` `name` (the SSID, else "No internet"
   / "Not connected") or `state`; on a side dock the label goes under the icon when it fits across.
-  `click` `popup` (default: 280 x 150, the name, kind, state, "metered", the signal as five
-  segments, **Network & internet settings** (`shell.open('ms-settings:network-status')`) and
-  **Quick settings** (`shell.sendKeys('win+a')`)), `quick` or `settings`. `network.onChange`
-  redraws only when something drawn changed. Settings `showLabel`, `label`, `scale`, `font`,
+  `click` `popup` (default; 1.1.0: 300 wide, 188 high with the signal card and 118 without, laid
+  out from its width between 16 DIP margins: the icon on a disc tinted by the state, the name cut
+  with an ellipsis (`measureText`, since `maxWidth` wraps), a state dot with the state, kind and
+  "Metered", a card with the signal in a word and as five segments, and two buttons of equal
+  width, **Quick settings** (`shell.sendKeys('win+a')`) and **Network settings**
+  (`shell.open('ms-settings:network-status')`); cards and buttons are `theme.labelText` at a low
+  alpha, so they show on a light panel; a state change while it is open opens it again at the new
+  height), `quick` or `settings`. `network.onChange` redraws only when something drawn changed. Settings `showLabel`, `label`, `scale`, `font`,
   `iconColor`, `textColor`, `warnColor`, `click`. Permissions `network`, `shell`.
 - `widgets/input-language` ("Input language", round 27 phase 27C): the [input](#input) provider as
   the taskbar's indicator: `code` ("ENG") semibold in `dock.theme.text`, `region` under it
