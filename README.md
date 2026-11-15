@@ -1262,8 +1262,23 @@ shows any more is stopped and dropped at once.
   today's low to its high with a dot at the temperature now, or the high and low as text) and
   **Capsules** (a rounded chip per day, tinted by its high on a cold-to-hot scale, by its
   condition or by the accent, with a strength, an outline, a corner radius and the low on or off;
-  upright and stacked on a side dock). The scale's two colours and its span (0 - 30 °C fixed, or
-  the days shown) are in a Colours card; **Show feels like** joins the Text toggles.
+  upright and stacked on a side dock). The scale's two colours and its span (the days shown by
+  default, or 0 - 30 °C fixed) are in a Colours card; **Show feels like** joins the Text toggles.
+  Round 33 phase 33B: **Design on the desktop** for a standalone Weather widget (a dock ignores
+  it): **Classic** (the slot grown to the window, as before, now with an optional panel),
+  **Sky** (the panel is a sky gradient by the time of day at the place and the weather, or a fixed
+  or own palette; the sun on a dashed arc from sunrise to sunset, the daylight's length, a row of
+  days; it redraws itself every 10 minutes and at dawn and dusk, nothing more), **Bento** (a tile
+  per fact: conditions, feels like, wind, humidity, UV with its scale, sunrise / sunset, an hour
+  strip, days; the tiles and their order are one comma-separated setting; four columns when the
+  window is wide, two when narrow) and **Bare** (a large thin temperature straight on the
+  wallpaper with a text shadow, day lines with range bars on one scale, a scrim, alignment). A
+  Panel card (fill none / solid / translucent / sky gradient, colour, opacity, corners, outline,
+  shadow, padding) and the Colours card's text colour and accent apply to every design. The
+  canvas has no blur or shadow: there is no glass (translucent instead; the window's own
+  Background "Panel" frosts with an acrylic theme), shadows are drawn as low-alpha rings and text
+  copies. These designs draw their own panel: keep the window's Background at None (the default).
+  Switching to a design grows a smaller window to the design's size once.
   Without a place of its own it uses the app's default place. This is the only weather widget
   offered by the add menu, widget drawer and bundled dock presets. Legacy `{ "kind": "weather" }`
   items automatically become `{ "kind": "widget", "id": "weather" }` when loaded, keeping their

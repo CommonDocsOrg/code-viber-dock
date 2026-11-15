@@ -2232,7 +2232,22 @@ definition; rather than hide "Days on the dock" behind a Forecast choice the use
 choosing Capsules sets it with `settings.set` once. The temperature scale's hue runs straight from
 the cold colour to the hot one (blue to orange through teal, green, yellow, as the mock-up's chips
 were), because the shortest way round the hue circle would pass purple; the fixed 0 - 30 °C span
-keeps a cold week blue, the optional span over the shown days spreads any week over the colours.
+keeps a cold week blue, the optional span over the shown days spreads any week over the colours
+(33B made the span over the shown days the default, after renders showed a mild week all
+yellow-green on the fixed one).
+
+**33B, Sky, Bento and Bare.** A `design` setting used only by a standalone widget: a settings
+field's `visibleIf` can only name other fields, so the row cannot hide on a dock and says so
+instead. Classic stays the fitted slot (call for call the same drawing as before, checked by
+recording both versions) with an optional panel. The canvas has no blur and no shadow, so the
+mock-up's glass became a translucent fill (frosted glass remains possible through the window's own
+acrylic Background) and shadows are drawn: four low-alpha rings cut out under the panel with an
+even-odd path, a ring of offset copies for text (copies only below read as an extruded edge). The
+host was left alone: the script cannot see the window's Background, so the setting's description
+asks for None, which is the default. Sky's picture moves with the clock, so it alone gets a
+timer, one `setTimeout` to the next 10-minute mark or dawn / dusk boundary; Bento's sun tile waits
+for the next data refresh rather than adding a second timer. The window grows to a design's size
+once, when the user switches to it, so a size chosen afterwards is never overridden.
 Status and what was not verified: STATUS.md, Round 33.
 
 ## Dependencies at a glance

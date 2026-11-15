@@ -282,9 +282,18 @@ The Appearance tab has the forecast on the dock and how it looks:
 - **Trend** and **Capsules** (shown for those layouts): the hours in the curve, its width, the rain bars, the labels under it, the line's colour and what a left or right dock shows; the chips' tint (their high temperature, their condition, the accent or none), its strength, the outline, the corner radius and the low.
 - **Text**: the condition's name under the temperature, the place, how warm it feels, today's high and low, **Day names** (Mon, M or Monday), whether the first day says **Today**, and **High and low** (arrows, a slash or a space between them).
 - **Icons**: **Icons** chooses ViberDock's filled pictures, Lucide's line icons, or Meteocons, coloured icons that move (the sun's rays turn, clouds drift, rain falls); the motion runs in Windows' compositor, so it costs the dock nothing, and **Animated icons** turns it off (reduce motion does too). **Icon colours** keeps the yellow sun and blue rain or draws everything in the text colour, and **Compact** leaves only the icon.
-- **Colours**: the cold and hot ends of the temperature scale the chips and the thermometer are coloured with, and whether the scale is fixed (0 to 30 °C) or spans the days shown.
+- **Colours**: the **Text colour** (automatic, light, dark or your own) and the **Accent colour** of every layout and design, the cold and hot ends of the temperature scale the chips, the thermometer and the range bars are coloured with, and whether the scale spans the days shown (the default) or is fixed at 0 to 30 °C.
 
-Right-click the widget for the quickest changes: **Forecast on the dock**, **Layout** and **Icons** are in its menu.
+A weather widget on the desktop has a **Design on the desktop** (a dock ignores it):
+
+- **Classic**: the dock's layout grown to the window, as before.
+- **Sky**: the panel is the sky at the place: blue by day, orange around sunrise and sunset, deep blue at night, grey in rain. The sun moves along a dashed arc from sunrise to sunset, with the length of the day under it and a row of days at the bottom. **Sky colours** can also be one sky always or two colours of your own.
+- **Bento**: a tile per fact: the conditions, feels like, wind, humidity, the UV index on its scale, sunrise and sunset, the next hours and the next days. **Tiles and their order** lists them by name, separated by commas (main, feels, wind, humidity, uv, sun, hours, days). The grid has four columns in a wide window and two in a narrow one.
+- **Bare**: no panel, a large thin temperature straight on the wallpaper with a shadow to keep it readable, and a line per day with a bar from its low to its high. You can choose the weight, the shadow, the alignment, a scrim behind it and the bars.
+
+**Days in the design** sets how many days Sky, Bento and Bare show. The **Panel** card sets what Classic, Sky and Bento draw behind themselves: none, solid, translucent or the sky gradient, and once you pick one, its colour, opacity, corners, outline, shadow and inner padding. These designs draw their own panel, so leave the window's **Background** (its Placement tab) at **None**. For frosted glass, set **Panel** to None and the window's Background to Panel with a theme that uses acrylic. Switching to a design makes a small window larger once; after that the size is yours.
+
+Right-click the widget for the quickest changes: **Design on the desktop**, **Forecast on the dock**, **Layout** and **Icons** are in its menu.
 
 ## Calendar and reminders
 
