@@ -1,8 +1,8 @@
 {
   "name": "Weather",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "author": "ViberDock",
-  "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock in several layouts and three icon packs, one of them animated. Choose a place for each widget or use the app's default place.",
+  "description": "Current conditions and a forecast popup from Open-Meteo, with optional forecasts on the dock in several layouts (day cells, tinted day chips, a curve of the coming hours) and three icon packs, one of them animated. Choose a place for each widget or use the app's default place.",
   "api": 1,
   "size": {
     "horizontal": { "main": 56, "cross": 26 },
@@ -39,6 +39,8 @@
         { "value": "tiles", "label": "Tiles: day over icon, high and low beside them" },
         { "value": "list", "label": "List: a line per day under the conditions" },
         { "value": "card", "label": "Card: big conditions, tiles under them" },
+        { "value": "trend", "label": "Trend: the next hours as a curve" },
+        { "value": "capsules", "label": "Capsules: a tinted chip per day" },
         { "value": "custom", "label": "Custom (the fields below)" }
       ] },
     { "key": "conditions", "section": "appearance", "type": "choice", "label": "Current conditions", "default": "auto", "group": "Layout", "visibleIf": { "layout": "custom" },
@@ -72,8 +74,51 @@
       "unit": "DIPs", "group": "Layout", "visibleIf": { "dockForecast": "days" } },
     { "key": "forecastGap", "section": "appearance", "type": "int", "label": "Space before the days", "description": "The gap between the current conditions and the first day. Default: 8.", "min": 0, "max": 48, "step": 2, "default": 8,
       "unit": "DIPs", "group": "Layout", "visibleIf": { "dockForecast": "days" } },
+    { "key": "trendHours", "section": "appearance", "type": "int", "label": "Hours in the curve", "description": "How many hours from now the curve covers. Default: 12.", "min": 6, "max": 24, "step": 1, "default": 12,
+      "unit": "hours", "group": "Trend", "visibleIf": { "layout": "trend" } },
+    { "key": "trendWidth", "section": "appearance", "type": "int", "label": "Width of the curve", "description": "The curve's width on the dock, scaled by the sizes below. Default: 120.", "min": 40, "max": 300, "step": 10, "default": 120,
+      "unit": "DIPs", "group": "Trend", "visibleIf": { "layout": "trend" } },
+    { "key": "trendRain", "section": "appearance", "type": "bool", "label": "Chance of rain as bars", "description": "A bar under each hour with rain likely, as tall as its chance. On by default.", "default": true,
+      "group": "Trend", "visibleIf": { "layout": "trend" } },
+    { "key": "trendLabels", "section": "appearance", "type": "choice", "label": "Labels under the curve", "default": "peak", "group": "Trend", "visibleIf": { "layout": "trend" },
+      "description": "Small text under the curve: none, Now and the last hour, or those and the warmest (or coldest) hour ahead. Default: with the peak.",
+      "choices": [
+        { "value": "none", "label": "None" },
+        { "value": "ends", "label": "Now and the last hour" },
+        { "value": "peak", "label": "Now, the last hour and the peak" }
+      ] },
+    { "key": "trendLine", "section": "appearance", "type": "choice", "label": "Line colour", "default": "text", "group": "Trend", "visibleIf": { "layout": "trend" },
+      "description": "The curve in the text colour, the accent, or coloured by temperature (the scale's ends under Colours). Default: the text colour.",
+      "choices": [
+        { "value": "text", "label": "Text colour" },
+        { "value": "accent", "label": "Accent" },
+        { "value": "temperature", "label": "By temperature" }
+      ] },
+    { "key": "trendSide", "section": "appearance", "type": "choice", "label": "On a left or right dock", "default": "thermometer", "group": "Trend", "visibleIf": { "layout": "trend" },
+      "description": "A side dock has no room for a curve: a thermometer from today's low to its high with a dot at the temperature now, or the high over the low as text. Default: thermometer.",
+      "choices": [
+        { "value": "thermometer", "label": "Thermometer" },
+        { "value": "text", "label": "High and low as text" }
+      ] },
+    { "key": "capsuleTint", "section": "appearance", "type": "choice", "label": "Tint of each chip", "default": "temperature", "group": "Capsules", "visibleIf": { "layout": "capsules" },
+      "description": "What colours a day's chip: its high on the temperature scale (Colours below), its condition, the accent, or nothing. Default: temperature.",
+      "choices": [
+        { "value": "temperature", "label": "Its high temperature" },
+        { "value": "condition", "label": "Its condition" },
+        { "value": "accent", "label": "The accent" },
+        { "value": "none", "label": "None" }
+      ] },
+    { "key": "capsuleStrength", "section": "appearance", "type": "int", "label": "Tint strength", "description": "How strong the tint behind a chip is. Default: 25.", "min": 0, "max": 100, "step": 5, "default": 25,
+      "unit": "%", "group": "Capsules", "visibleIf": { "layout": "capsules" } },
+    { "key": "capsuleOutline", "section": "appearance", "type": "bool", "label": "Outline the chips", "description": "A thin line in the tint around each chip. On by default.", "default": true,
+      "group": "Capsules", "visibleIf": { "layout": "capsules" } },
+    { "key": "capsuleRadius", "section": "appearance", "type": "int", "label": "Corner radius of the chips", "description": "Rounder corners as it grows; at its largest the chips are pills. Default: 30.", "min": 0, "max": 30, "step": 1, "default": 30,
+      "unit": "DIPs", "group": "Capsules", "visibleIf": { "layout": "capsules" } },
+    { "key": "capsuleLow", "section": "appearance", "type": "bool", "label": "Show the low in a chip", "description": "Adds each day's low after its high on a top or bottom dock (a side dock's upright chips show the high only). On by default.", "default": true,
+      "group": "Capsules", "visibleIf": { "layout": "capsules" } },
     { "key": "showCondition", "section": "appearance", "type": "bool", "label": "Show the condition's name", "description": "Writes the condition (\"Partly cloudy\") under the temperature. Off by default.", "default": false, "group": "Text" },
     { "key": "showPlace", "section": "appearance", "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Text" },
+    { "key": "showFeelsLike", "section": "appearance", "type": "bool", "label": "Show feels like", "description": "Writes the apparent temperature (\"Feels 20°\") under the temperature. Off by default.", "default": false, "group": "Text" },
     { "key": "showHigh", "section": "appearance", "type": "bool", "label": "Show today's high", "description": "Adds today's highest temperature under the current one. Off by default.", "default": false, "group": "Text" },
     { "key": "showLow", "section": "appearance", "type": "bool", "label": "Show today's low", "description": "Adds today's lowest temperature under the current one. Off by default.", "default": false, "group": "Text" },
     { "key": "dayNames", "section": "appearance", "type": "choice", "label": "Day names", "default": "auto", "group": "Text",
@@ -110,6 +155,16 @@
       ] },
     { "key": "compact", "section": "appearance", "type": "bool", "label": "Compact (the icon only)", "default": false, "group": "Icons",
       "description": "The temperature and the text lines are left out; the popup still shows everything." },
+    { "key": "coldColor", "section": "appearance", "type": "colour", "label": "Cold end of the scale", "default": "#FF6CB8FF", "group": "Colours",
+      "description": "The colour of a cold temperature: the Capsules' tint, the Trend's thermometer and its line coloured by temperature. Default: sky blue." },
+    { "key": "hotColor", "section": "appearance", "type": "colour", "label": "Hot end of the scale", "default": "#FFFF9F43", "group": "Colours",
+      "description": "The colour of a hot temperature; between the two ends the hue goes through green and yellow. Default: orange." },
+    { "key": "tempScale", "section": "appearance", "type": "choice", "label": "The scale spans", "default": "fixed", "group": "Colours",
+      "description": "Fixed: the cold end is 0 °C (32 °F), the hot end 30 °C (86 °F). The days shown: from the lowest to the highest of them, so any week shows the whole range of colours. Default: fixed.",
+      "choices": [
+        { "value": "fixed", "label": "0 to 30 °C (32 to 86 °F)" },
+        { "value": "days", "label": "The lowest to the highest shown" }
+      ] },
     { "key": "clickOpens", "section": "content", "type": "choice", "label": "Clicking the widget opens", "description": "What a click does: open the forecast popup, open the widget's settings to choose the place, or nothing. Default: the forecast popup.", "default": "popup", "group": "Click",
       "choices": [
         { "value": "popup", "label": "The forecast popup" },

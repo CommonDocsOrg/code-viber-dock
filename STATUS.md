@@ -1109,7 +1109,26 @@ Nothing was run on the desktop.
 ## Release 0.5.6 (2026-11-14)
 Rounds 25 - 32 and the fix above, merged into master and released as 0.5.6 (tag `v0.5.6`, `ViberDock-0.5.6-x64.msi`). Most of rounds 25 - 32 was never run on the desktop: the manual check lists of those rounds are still open.
 
+## Round 33: Weather designs (from the user's approved mock-ups of 2026-11-14; branch `feature/weather-designs`, from master)
+Nothing was run on the desktop. Script and manifest only (`widgets/weather`), no host change.
+
+| Phase | Status | Notes |
+|---|---|---|
+| 33A Two docked layouts: Trend and Capsules | Done, not run (2026-11-14) | Weather 1.4.0. `layout` `trend`: the conditions, then a curve of the next `trendHours` (12) hours (`trendWidth` 120 DIPs, `trendRain` bars, `trendLabels` peak, `trendLine` text / accent / temperature); a side dock gets `trendSide` thermometer (today's low to high, a dot at now) or text. `layout` `capsules`: a chip per day tinted by `capsuleTint` (temperature / condition / accent / none) at `capsuleStrength` 25 %, `capsuleOutline`, `capsuleRadius` 30, `capsuleLow`; upright and stacked on a side dock. Colours card: `coldColor`, `hotColor`, `tempScale` (fixed 0 - 30 °C or the days shown). Text: `showFeelsLike` (the Trend's second line comes from the Text toggles, no setting of its own). Choosing Capsules sets `dockForecast` to days (`settings.set`, in `onSettingsChanged`, only on a change of layout). `debugStore` adds `layout`, `block`, `hours`. Docs: widgets.md (the weather bullet), README, guide-items. |
+| | | **Verified**: `build\dev` builds, 0 warnings; `--validate-widget widgets\weather` exit 0; `check_docs.py` clean (84 topics), `check_widget_docs.py` no drift; a Node stand-in for the host (scratchpad `wxh\harness.mjs`, not in the repo) ran measure + draw of every layout and option on bottom, left, preview and five standalone sizes against 13 data cases (normal, imperial, no current, empty hourly / daily, no sunrise, nulls everywhere, flat temperatures, one hour, not configured, no data, night, dusk, polar): no exception, no non-finite coordinate, no malformed colour, no "undefined" / "NaN" text. Existing layouts draw through unchanged code (`drawForecast`, `forecast`), so `layout: auto` is untouched. |
+| | | **Not verified**: anything on screen (DirectWrite metrics differ from the stand-in's: the chips' widths, the labels' fit under a 120 DIP curve, the side dock's 141 DIP Trend column next to 48 DIP icons), Meteocons layers in chips, the `settings.set` round trip on the settings page, a light theme. `build\x64-release` was not rebuilt. |
+
+**Manual check (33A)**, on a build of this branch:
+
+1. A Weather item on a bottom dock: Layout > Trend. The curve follows the hours, rain bars under the wet ones, "Now", the last hour and the peak under it; try 6 and 24 hours, each line colour, labels off, a wider curve, Size 150 %.
+2. The same item on a left dock: the thermometer (the dot sits at the temperature now between today's low and high); On a left or right dock > High and low as text.
+3. Layout > Capsules: "Forecast on the dock" switches to Several days by itself and Days on the dock appears; each tint, the strength at 0 and 100, the outline off, radius 0, the low off; on a left dock the chips stack upright.
+4. Colours: own cold and hot colours; The scale spans > the days shown. Text > Show feels like.
+5. Drag the item to the desktop with Trend and Capsules: both fill the window. Existing Automatic / Strip / Tiles / List / Card items look as before.
+
 ## How to resume
+
+**Round 33** (2026-11-14, table "Round 33" above, branch `feature/weather-designs`, from master, not merged or pushed): the Weather widget 1.4.0's Trend and Capsules layouts (33A). Built into `build\dev` only, nothing run: the manual check list above is next.
 
 **Round 29** (2026-11-13, table "Round 29" above, branch `feature/widget-dev-tools`, on `feature/widgets-styles`, not merged or pushed): 29A `--validate-widget` compiles the scripts and warns about unused permissions and missing metadata, `docs/windock.d.ts` (RCDATA 396, written by Export built-in), the Console's Copy all / Save to file… (4007 / 4008); 29B the in-tree zip reader (`Zip.cpp`, tests in `tests\zip`), Install from zip… / Uninstall… / Show folder (3514 - 3516, DockCommand 190 / 191, QueryState 374 - 376), `--validate-widget` on a zip. Built into `build\dev` only, nothing run.
 

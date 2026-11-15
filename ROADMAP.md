@@ -2216,6 +2216,25 @@ grid cell keeps its size and shrinks the arrow instead (the grid must not jump).
 replaces the hover plate and also shows the open drawer, which dots and `+N` could not show before.
 Status and what was not verified: STATUS.md, Round 30.
 
+## Round 33 (2026-11-14): Weather designs
+
+From the user, after approving HTML mock-ups of five looks: two new docked layouts and three
+desktop designs for the Weather widget, "everything highly customizable from the weather widget
+settings of each weather widget". Branch `feature/weather-designs`. Script and manifest only: every
+value comes from `weather.get()` as it is (round 28's feels like, UV, sunrise and sunset included).
+
+**33A, Trend and Capsules.** Both are new kinds of the block after the conditions (`PRESETS`'
+`cell`), so the existing measure, fit-to-window and centring code takes them unchanged and the
+older layouts keep their code path. Trend's second line is not a setting of its own: the Text
+toggles already write the condition, the place and the high / low under the temperature, so only
+"feels like" was missing and became one more toggle for every layout. Capsules shows days by
+definition; rather than hide "Days on the dock" behind a Forecast choice the user did not make,
+choosing Capsules sets it with `settings.set` once. The temperature scale's hue runs straight from
+the cold colour to the hot one (blue to orange through teal, green, yellow, as the mock-up's chips
+were), because the shortest way round the hue circle would pass purple; the fixed 0 - 30 °C span
+keeps a cold week blue, the optional span over the shown days spreads any week over the colours.
+Status and what was not verified: STATUS.md, Round 33.
+
 ## Dependencies at a glance
 
 ```

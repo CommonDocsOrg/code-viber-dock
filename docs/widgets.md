@@ -1737,9 +1737,32 @@ built-ins are worked examples too:
   only; standalone fills the window as before), `daySize` 60 - 250 % the day cells on their own
   (their text, icons and the tile's inner gap, not the gap between cells), `dayGap` 0 - 48 DIPs
   between cells (default 6) and `forecastGap` 0 - 48 DIPs between the conditions and the first
-  cell (default 8; half of it when the cells go under), both scaled by `size`. Test hook:
-  `"debugStore": true` stores what the slot (with its `days` count, `conditions`, `cell`,
-  `placement`, `stack`, `pack`) and the popup drew. Permissions `weather`, `shell`.
+  cell (default 8; half of it when the cells go under), both scaled by `size`. Round 33 phase 33A
+  (1.4.0): two more `layout` values. **`trend`**: after the conditions a temperature curve of the
+  next `trendHours` (6 - 24, default 12) hours from `hourly` (a `canvas.path` polyline,
+  `trendWidth` 40 - 300 DIPs wide, default 120, times `size` and `daySize`), a dot at now in the
+  accent, `trendRain` (default on) bars of `precip` under it, `trendLabels` `none` / `ends` (Now
+  and the last hour) / `peak` (default: also the extreme ahead, the highest point or, when the
+  hours fall further than they rise, the lowest: "25° at 4 PM"), `trendLine` `text` / `accent` /
+  `temperature` (a vertical gradient on the scale below); on a left / right dock `trendSide`
+  `thermometer` (default: a 7 x 52 DIP gradient bar from today's low to its high, a dot at the
+  temperature now, the high and low at its ends) or `text` (↑high over ↓low). Its second line is
+  the Text toggles' (no setting of its own): `showFeelsLike` (new, any layout: "Feels 20°") with
+  `showCondition`, `showPlace`, `showHigh`, `showLow`. **`capsules`**: a rounded chip per day
+  (`dockDays`, the day names, `daySize`, `dayGap`, `forecastGap` as for the cells; it shows days
+  whatever `dockForecast` says, and choosing it sets `dockForecast` to `"days"` through
+  `settings.set` so the page shows those fields): the icon, then the day's name over its high and
+  (`capsuleLow`, default on) its low; stacked and upright on a left / right dock (the name, the
+  icon, the high). `capsuleTint` `temperature` (default: the high on the scale) / `condition` /
+  `accent` / `none`, `capsuleStrength` 0 - 100 % (default 25; the outline takes 20 % + 1.1 x
+  that), `capsuleOutline` (default on), `capsuleRadius` 0 - 30 DIPs (default 30: pills). The
+  temperature scale (group "Colours"): `coldColor` (default `#FF6CB8FF`) and `hotColor`
+  (`#FFFF9F43`), the hue going straight from one to the other (blue to orange passes teal, green
+  and yellow), slightly desaturated in the middle; `tempScale` `fixed` (0 - 30 °C, 32 - 86 °F) or
+  `days` (the lowest to the highest value shown). Test hook: `"debugStore": true` stores what the
+  slot (with its `days` count, `conditions`, `cell`, `placement`, `stack`, `pack`; round 33 also
+  `layout`, `block` (`days`, `trend`, `thermo`, `range`, `capsules` or `none`) and `hours`) and the
+  popup drew. Permissions `weather`, `shell`.
 - `widgets/notes` ("Notes", round 6): a note per item, written in the dock's text editor
   (`popup.editText`). Its text is kept in the widget's storage under `"note:" + dock.itemKey`, or
   under `"note:id:" + noteId` when the **Note id** setting is set (items with the same id, on any

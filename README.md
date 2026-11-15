@@ -1255,7 +1255,15 @@ shows any more is stopped and dropped at once.
   drift, rain falls) whose loops Windows' compositor runs through the widget API's composition
   layers (docs/widgets.md "canvas", `layer`), so the dock never wakes for a frame; **Animated
   icons** turns the motion off, and reduce motion does too. Tiles put the day over the icon with the high
-  over the low beside them, so a narrow dock gets a readable forecast.
+  over the low beside them, so a narrow dock gets a readable forecast. Round 33 phase 33A (1.4.0)
+  adds two layouts: **Trend** (a temperature curve of the next 6 - 24 hours after the conditions,
+  the chance of rain as bars under it, labels for now, the last hour and the peak, the line in the
+  text colour, the accent or by temperature, a width; on a left / right dock a thermometer from
+  today's low to its high with a dot at the temperature now, or the high and low as text) and
+  **Capsules** (a rounded chip per day, tinted by its high on a cold-to-hot scale, by its
+  condition or by the accent, with a strength, an outline, a corner radius and the low on or off;
+  upright and stacked on a side dock). The scale's two colours and its span (0 - 30 °C fixed, or
+  the days shown) are in a Colours card; **Show feels like** joins the Text toggles.
   Without a place of its own it uses the app's default place. This is the only weather widget
   offered by the add menu, widget drawer and bundled dock presets. Legacy `{ "kind": "weather" }`
   items automatically become `{ "kind": "widget", "id": "weather" }` when loaded, keeping their
