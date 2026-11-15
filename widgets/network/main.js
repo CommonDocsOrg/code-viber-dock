@@ -1,6 +1,6 @@
 // Network (round 27 phase 27B): the taskbar's network icon, from the `network` provider
 // (network.get(): { available, connected, internet, state, kind, name, bars, signal, metered }).
-// Wi-Fi: a dot and three arcs, lit up to the signal (Windows' 0 - 5 bars mapped to the four steps);
+// Wi-Fi: a fan of a wedge and three bands, lit up to the signal (Windows' 0 - 5 bars as four steps);
 // ethernet: a plug; cellular: five rising bars; a VPN: a padlock; anything else: a globe. No
 // internet (local access only, or a captive portal asking to sign in): the icon with a small cross
 // (an exclamation mark for the sign-in) in the corner; no connection at all: a crossed-out globe.
@@ -11,8 +11,6 @@
 // NetworkStatusChanged) and quiet while this widget cannot be seen; the widget redraws only when
 // what it shows changed.
 
-const POPUP_W = 280, POPUP_H = 150;
-
 let net = network.get();
 let hits = [];
 
@@ -20,7 +18,7 @@ network.onChange((s) => {
   if (same(s, net)) return;
   net = s;
   requestRedraw();  // re-measures too (the label's width may change)
-  if (popup.isOpen) popup.redraw();
+  if (popup.isOpen) openPopup();  // its height follows the state (the signal card)
 });
 
 function same(a, b) {
@@ -87,20 +85,27 @@ export function measure(canvas, dock) {
 
 // --- glyphs (in a g x g square at x, y) ------------------------------------------------------------
 
+// Widget 1.1.0: a fan (a quarter circle standing on its point) cut into a wedge and three bands,
+// the way Windows 11 draws it, instead of a dot and three thin round-capped arcs. The old arcs
+// reached a radius of 0.8 g at a 90 degree span, 1.13 g across: wider than the glyph's own square,
+// which made the icon look bigger than its neighbours. The fan's radius is 0.68 g (0.96 g across).
 function wifi(canvas, x, y, g, ink, steps) {
-  const cx = x + g / 2, by = y + g * 0.86;
-  const sw = Math.max(1.2, g * 0.085);
-  const dim = (on) => (on ? 1 : 0.28);
+  const cx = x + g / 2, by = y + g * 0.83;
+  const R = g * 0.68, a0 = -Math.PI * 0.75, a1 = -Math.PI * 0.25;
+  const r0 = R * 0.22, gap = R * 0.085, t = (R - r0 - 3 * gap) / 3;
+  const dim = (on) => (on ? 1 : 0.3);
   canvas.save();
   canvas.opacity(dim(steps >= 1));
-  canvas.fillCircle(cx, by - sw * 0.2, sw * 0.95, ink);
+  canvas.fill(canvas.path().moveTo(cx, by).arc(cx, by, r0, a0, a1, false).close(), ink);
   canvas.restore();
   for (let i = 1; i <= 3; i++) {
-    const r = g * (0.2 + 0.2 * i);
-    const a = canvas.path().arc(cx, by, r, -Math.PI * 0.75, -Math.PI * 0.25, false);
+    const r = r0 + i * gap + (i - 0.5) * t;
+    const p = canvas.path();
+    p.moveTo(cx + r * Math.cos(a0), by + r * Math.sin(a0));
+    p.arc(cx, by, r, a0, a1, false);
     canvas.save();
     canvas.opacity(dim(steps >= i + 1));
-    canvas.stroke(a, ink, { width: sw, cap: 'round' });
+    canvas.stroke(p, ink, { width: t, cap: 'butt' });
     canvas.restore();
   }
 }
@@ -165,8 +170,7 @@ function badge(canvas, x, y, g, mark, color) {
   }
 }
 
-function glyph(canvas, dock, x, y, g) {
-  const ink = inkOf(dock);
+function glyph(canvas, ink, x, y, g) {
   if (!net.available || !net.connected) {
     canvas.save();
     canvas.opacity(0.7);
@@ -197,18 +201,58 @@ export function draw(canvas, dock) {
   const W = canvas.width, H = canvas.height;
   if (l.vertical) {
     const top = Math.round((H - l.h) / 2);
-    glyph(canvas, dock, Math.round((W - l.g) / 2), top, l.g);
+    glyph(canvas, inkOf(dock), Math.round((W - l.g) / 2), top, l.g);
     if (l.text) canvas.text(l.text.str, W / 2, top + l.g + l.gap, { ...l.text.style, align: 'center', color: textOf(dock) });
     return;
   }
   const left = dock.standalone || !l.text ? Math.round((W - l.w) / 2) : l.pad;
-  glyph(canvas, dock, left, Math.round((H - l.g) / 2), l.g);
+  glyph(canvas, inkOf(dock), left, Math.round((H - l.g) / 2), l.g);
   if (l.text) {
     canvas.text(l.text.str, left + l.g + l.gap, H / 2, { ...l.text.style, baseline: 'middle', color: textOf(dock) });
   }
 }
 
 // --- clicks and the popup --------------------------------------------------------------------------
+//
+// Widget 1.1.0: the popup is laid out from its width (everything sits between the two 16 DIP
+// margins), so nothing can run off an edge: 1.0.0 placed two buttons as wide as their labels from
+// the right, 304 DIPs of buttons in a 280 DIP popup, and the left one was cut off. Its height
+// follows what there is to show (the signal card only for Wi-Fi and cellular). Colours come from
+// the theme's label text at a low alpha, so the cards and buttons show on a light panel too.
+
+const POPUP_W = 300, PAD = 16;
+const SIGNAL = ['No signal', 'Very weak', 'Weak', 'Fair', 'Good', 'Excellent'];
+
+const hasBars = (s) => s.available && s.connected && s.bars !== null && s.bars !== undefined;
+const popupHeight = (s) => (hasBars(s) ? 188 : 118);
+
+// A theme colour ("#AARRGGBB" or "#RRGGBB") at another alpha (0 - 1).
+function alpha(c, a) {
+  const rgb = typeof c === 'string' && /^#[0-9a-f]{8}$/i.test(c) ? c.slice(3) : typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c.slice(1) : 'FFFFFF';
+  return '#' + Math.round(a * 255).toString(16).padStart(2, '0') + rgb;
+}
+
+// text()'s maxWidth wraps; a long network name must end in an ellipsis on its one line instead.
+function fit(canvas, str, style, maxW) {
+  if (canvas.measureText(str, style).width <= maxW) return str;
+  let lo = 0, hi = str.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (canvas.measureText(str.slice(0, mid).trimEnd() + '…', style).width <= maxW) lo = mid; else hi = mid - 1;
+  }
+  return str.slice(0, lo).trimEnd() + '…';
+}
+
+// The state's colour: the dot beside the state and the tint of the icon's disc.
+function stateColor(s) {
+  if (!s.available || !s.connected || s.state === 'none' || s.state === 'local') return warnOf();
+  if (s.state === 'constrained') return '#FFF7B500';
+  return '#FF3FB950';
+}
+
+function openPopup() {
+  popup.open(POPUP_W, popupHeight(net));
+}
 
 export function onClick(e) {
   if (e.closedPopup) return;  // the press closed the popup: a click toggles it
@@ -216,39 +260,58 @@ export function onClick(e) {
   if (settings.click === 'settings') { shell.open('ms-settings:network-status'); return; }
   net = network.get();
   requestRedraw();
-  popup.open(POPUP_W, POPUP_H);
+  openPopup();
 }
 
-function button(canvas, dock, label, rightX, y, act) {
-  const ink = dock.theme.labelText;
-  const bw = Math.ceil(canvas.measureText(label, { size: 12.5 }).width) + 24;
-  const b = { x: rightX - bw, y, w: bw, h: 26 };
-  canvas.fillRoundRect(b.x, b.y, b.w, b.h, 6, '#20FFFFFF');
-  canvas.strokeRoundRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1, 6, '#30808080', 1);
-  canvas.text(label, b.x + b.w / 2, b.y + b.h / 2, { size: 12.5, align: 'center', baseline: 'middle', color: ink });
+function button(canvas, ink, label, x, y, w, act) {
+  const b = { x, y, w, h: 30 };
+  canvas.fillRoundRect(b.x, b.y, b.w, b.h, 7, alpha(ink, 0.09));
+  canvas.strokeRoundRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1, 7, alpha(ink, 0.12), 1);
+  const style = { size: 12.5 };
+  canvas.text(fit(canvas, label, style, b.w - 12), b.x + b.w / 2, b.y + b.h / 2, { ...style, align: 'center', baseline: 'middle', color: ink });
   hits.push({ ...b, act });
-  return b.x;
 }
 
 export function drawPopup(canvas, dock) {
   hits = [];
-  const W = canvas.width;
+  const W = canvas.width, inner = W - 2 * PAD;
   const ink = dock.theme.labelText, dim = dock.theme.dateText;
-  glyph(canvas, { theme: { text: ink } }, 16, 14, 28);
-  const title = net.connected ? net.name || KINDS[net.kind] || 'Network' : 'Not connected';
-  canvas.text(title, 54, 14, { size: 14, weight: 'semibold', color: ink, maxWidth: W - 70 });
-  const kind = net.connected ? KINDS[net.kind] || 'Network' : 'No network';
-  canvas.text(kind + ' · ' + stateText(net) + (net.metered ? ' · metered' : ''), 54, 34, { size: 12, color: dim, maxWidth: W - 70 });
-  if (net.connected && net.bars !== null && net.bars !== undefined) {
-    canvas.text('Signal', 16, 66, { size: 12, color: ink });
-    const x0 = 70, segW = 26, segH = 8;
+  const online = net.available && net.connected;
+  const tone = stateColor(net);
+
+  // The header: the icon on a disc in the state's colour, the name, the state and the kind.
+  const disc = 40, dcx = PAD + disc / 2, dcy = PAD + disc / 2;
+  canvas.fillCircle(dcx, dcy, disc / 2, alpha(net.internet ? dock.theme.accent : tone, 0.2));
+  glyph(canvas, ink, dcx - 11, dcy - 11, 22);
+  const tx = PAD + disc + 12, tw = W - PAD - tx;
+  const titleStyle = { size: 14.5, weight: 'semibold' };
+  const title = online ? net.name || KINDS[net.kind] || 'Network' : 'Not connected';
+  canvas.text(fit(canvas, title, titleStyle, tw), tx, dcy - 19, { ...titleStyle, color: ink });
+  const parts = [stateText(net)];
+  if (online) parts.push(KINDS[net.kind] || 'Network');
+  if (online && net.metered) parts.push('Metered');
+  const subStyle = { size: 12 };
+  canvas.fillCircle(tx + 3.5, dcy + 10, 3.5, tone);
+  canvas.text(fit(canvas, parts.join(' · '), subStyle, tw - 13), tx + 13, dcy + 10, { ...subStyle, baseline: 'middle', color: dim });
+
+  // The signal (Wi-Fi, cellular): Windows' five bars as segments across the card, and in a word.
+  let y = PAD + disc + PAD;
+  if (hasBars(net)) {
+    const bars = Math.max(0, Math.min(5, net.bars));
+    canvas.fillRoundRect(PAD, y, inner, 58, 8, alpha(ink, 0.06));
+    canvas.text('Signal', PAD + 12, y + 11, { size: 12, color: dim });
+    canvas.text(SIGNAL[bars], W - PAD - 12, y + 11, { size: 12, weight: 'semibold', align: 'right', color: ink });
+    const sx = PAD + 12, sg = 4, sw = (inner - 24 - 4 * sg) / 5;
     for (let i = 0; i < 5; i++) {
-      canvas.fillRoundRect(x0 + i * (segW + 4), 70, segW, segH, segH / 2, i < net.bars ? dock.theme.accent : '#40808080');
+      canvas.fillRoundRect(sx + i * (sw + sg), y + 36, sw, 6, 3, i < bars ? dock.theme.accent : alpha(ink, 0.14));
     }
-    canvas.text(net.bars + ' of 5', W - 16, 66, { size: 12, align: 'right', color: dim });
+    y += 58 + 12;
   }
-  const left = button(canvas, dock, 'Network & internet settings', W - 16, 108, () => { shell.open('ms-settings:network-status'); popup.close(); });
-  button(canvas, dock, 'Quick settings', left - 8, 108, () => { popup.close(); shell.sendKeys('win+a'); });
+
+  // Two buttons of the same width, side by side between the margins.
+  const bw = (inner - 8) / 2;
+  button(canvas, ink, 'Quick settings', PAD, y, bw, () => { popup.close(); shell.sendKeys('win+a'); });
+  button(canvas, ink, 'Network settings', PAD + bw + 8, y, bw, () => { shell.open('ms-settings:network-status'); popup.close(); });
 }
 
 export function onPopupClick(e) {

@@ -1091,6 +1091,24 @@ Nothing was run on the desktop.
 | | | **Verified**: `build\dev` builds; `--validate-widget widgets\media` OK; `check_docs.py` and `check_widget_docs.py` clean. |
 | | | **Not verified**: the look of any skin with the colour set, the 73 % dim lines against each display, the settings row. `build\x64-release` was not rebuilt. |
 
+## Round 32: the Network widget's look (from the user's request of 2026-11-14; not committed, in the working tree beside the open `fix/photo-rotate-hang` change)
+Nothing was run on the desktop.
+
+| Phase | Status | Notes |
+|---|---|---|
+| 32A The Wi-Fi icon and the popup | Done, not run (2026-11-14) | Network 1.1.0, `widgets/network/main.js` only (no API or setting changed). The report: the Wi-Fi icon "looks silly" and the popup overflows. Icon: the dot and three round-capped arcs reached 1.13 x the glyph's square at their 90 degree span, so it was bigger than its neighbours; now a fan (a filled wedge and three butt-capped bands) 0.96 x the square across. Popup: 1.0.0 right-aligned two buttons as wide as their labels, about 304 DIPs in a 280 DIP popup, so "Quick settings" was cut off on the left. Now 300 wide and laid out from its width: the icon on a state-tinted disc, the name with an ellipsis, a state dot + state, kind, "Metered", a signal card (a word and five segments; Wi-Fi and cellular only, the popup is 188 or 118 high), two equal buttons **Quick settings** / **Network settings**. Fills come from `theme.labelText` at a low alpha instead of fixed white. `docs/widgets.md` and `docs/guide-items.md` updated. |
+| | | **Not verified**: the look of anything (a mock-canvas render to SVG could not be turned into an image here: headless Edge wrote no screenshot); the ethernet, cellular, VPN and no-connection popups; a light theme; the reopen at a new height when the state changes while the popup is open. `build\x64-release` was not rebuilt. |
+
+## Fix: a turned photo froze the dock (2026-11-14, branch `fix/photo-rotate-hang`, from master)
+
+| Fix | Status | Notes |
+|---|---|---|
+| A JPEG with an EXIF orientation decoded on the UI thread for tens of seconds | Done (2026-11-14) | `WidgetCanvas::FindImage`: a picture that is flipped or turned is first held in memory (`CreateBitmapFromSource`, `WICBitmapCacheOnLoad`) after the scaler, because the flip rotator reads its source out of order and the JPEG decoder restarts the file for each step back. Measured (the comment in the source has the numbers): a 22 MB, 11296 x 3728 JPEG with orientation 3 took 41 s (246 s as a quarter turn) against 0.13 s. This was the Photo frame "stopped" by the CPU budget once per round of a slideshow, and is a likely cause of the hang reported on 2026-11-14. |
+| | | **Not verified** at release time: a slideshow run on the desktop with the fixed build. |
+
+## Release 0.5.6 (2026-11-14)
+Rounds 25 - 32 and the fix above, merged into master and released as 0.5.6 (tag `v0.5.6`, `ViberDock-0.5.6-x64.msi`). Most of rounds 25 - 32 was never run on the desktop: the manual check lists of those rounds are still open.
+
 ## How to resume
 
 **Round 29** (2026-11-13, table "Round 29" above, branch `feature/widget-dev-tools`, on `feature/widgets-styles`, not merged or pushed): 29A `--validate-widget` compiles the scripts and warns about unused permissions and missing metadata, `docs/windock.d.ts` (RCDATA 396, written by Export built-in), the Console's Copy all / Save to file… (4007 / 4008); 29B the in-tree zip reader (`Zip.cpp`, tests in `tests\zip`), Install from zip… / Uninstall… / Show folder (3514 - 3516, DockCommand 190 / 191, QueryState 374 - 376), `--validate-widget` on a zip. Built into `build\dev` only, nothing run.

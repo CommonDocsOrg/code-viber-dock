@@ -1,6 +1,6 @@
 {
   "name": "Network",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "ViberDock",
   "description": "The network icon the taskbar had: Wi-Fi with its signal bars, an ethernet plug, a cellular signal or a VPN lock, a cross when there is no internet and a crossed globe when there is no connection. Optionally the network's name or its state beside it. A click opens a popup with the name, kind, signal and state, or Windows' quick settings, or the Network & internet settings.",
   "api": 1,

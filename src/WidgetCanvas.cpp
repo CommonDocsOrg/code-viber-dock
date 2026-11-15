@@ -695,6 +695,21 @@ WidgetCanvas::ImageEntry* WidgetCanvas::FindImage(const std::string& path, std::
                                                  : orientation == 6 || orientation == 7 ? WICBitmapTransformRotate90
                                                  : orientation == 5 || orientation == 8 ? WICBitmapTransformRotate270
                                                                                         : WICBitmapTransformRotate0;
+        // A picture that is turned is decoded into memory first. The flip rotator does not read its
+        // source top to bottom (180 degrees / a vertical flip: the rows from the last one up; 90 /
+        // 270: a column per row), and the JPEG decoder under the scaler can only go forward: it
+        // starts the file again for each step back. Measured on a 22 MB, 11296 x 3728 JPEG with
+        // orientation 3: 41 s on the UI thread (246 s as a quarter turn) against 0.13 s with the
+        // scaled picture held here; the pixels are the same. That was the photo frame "stopped"
+        // by the CPU budget once per round of a slideshow, and the dock not responding meanwhile.
+        if (flip != WICBitmapTransformRotate0 || rotate != WICBitmapTransformRotate0) {
+            winrt::com_ptr<IWICBitmap> held;
+            if (FAILED(wic->CreateBitmapFromSource(source.get(), WICBitmapCacheOnLoad, held.put()))) {
+                error = L"cannot decode image: " + shown;
+                return nullptr;
+            }
+            source = held;
+        }
         for (const WICBitmapTransformOptions t : {flip, rotate}) {
             if (t == WICBitmapTransformRotate0) continue;
             winrt::com_ptr<IWICBitmapFlipRotator> rotator;
