@@ -12,9 +12,9 @@
 // work area really is the full monitor. A crash marker file holding the saved state is written
 // so a later run (or `--restore-taskbar`) can undo the hide after a crash.
 //
-// Re-hide is event driven: an out-of-context WinEvent hook scoped to Explorer's process catches
-// EVENT_OBJECT_SHOW on a taskbar window, and App forwards "TaskbarCreated" (Explorer restart) to
-// OnTaskbarCreated(), which re-finds the windows and re-installs the hook for the new PID.
+// Re-hide is event driven. WinEvent hooks watch for taskbar windows being shown and the Start
+// menu being uncloaked. The hooks survive Explorer changing PID, and App forwards
+// "TaskbarCreated" to OnTaskbarCreated() to reapply the hide after an Explorer restart.
 //
 // Restore() performs no heap allocation, so it is safe to call from an unhandled-exception
 // filter via EmergencyRestore(). Everything runs on the UI thread.
@@ -30,7 +30,7 @@ public:
     bool Enabled() const { return enabled_; }
 
     // Idempotent. No-op while disabled. If Explorer's taskbar does not exist yet (early logon),
-    // the hide is applied when OnTaskbarCreated() arrives.
+    // the hide is applied when the taskbar appears.
     void Hide();
     // Idempotent. Shows the taskbar, restores the saved appbar state and work areas, removes the
     // hook and deletes the crash marker. The controller stays enabled, so a later Hide() (or
@@ -38,7 +38,7 @@ public:
     void Restore();
     bool IsHidden() const { return active_; }
 
-    // Explorer (re)created its taskbar: re-find windows, re-hook the new process, re-hide.
+    // Explorer (re)created its taskbar: re-find windows and re-hide.
     void OnTaskbarCreated();
     // WM_SETTINGCHANGE(SPI_SETWORKAREA) arrived: re-check the work area while hidden.
     void OnWorkAreaChanged();
@@ -84,11 +84,12 @@ private:
     static int TaskbarEdge(HWND bar, const RECT& monitor);
     static void CaptureState(SavedState& s);
     static void SetAppBarState(UINT state);
+    static void EnsureAutoHide();
 
     void ApplyHide();
     void VerifyWorkArea();
-    void InstallHook();
-    void RemoveHook();
+    void InstallHooks();
+    void RemoveHooks();
     void ScheduleVerify(UINT delayMs);
     void CancelVerify();
 
@@ -107,8 +108,8 @@ private:
     bool pendingHide_ = false;   // Hide() requested before Explorer's taskbar existed
     SavedState saved_;
     SavedState carried_;         // from RecoverFromMarker(), consumed by the next Hide()
-    HWINEVENTHOOK hook_ = nullptr;
-    DWORD hookPid_ = 0;
+    HWINEVENTHOOK showHook_ = nullptr;
+    HWINEVENTHOOK uncloakHook_ = nullptr;
     UINT_PTR verifyTimer_ = 0;
     int verifyStep_ = 0;
     int workAreaFixes_ = 0;      // bounded so we can never ping-pong with Explorer

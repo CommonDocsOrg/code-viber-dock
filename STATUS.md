@@ -1142,6 +1142,10 @@ Nothing was run on the desktop. Script and manifest only (`widgets/weather`), no
 6. Colours: an own accent and text colour on a docked Trend and on each design; the popup stays in the theme's colours.
 7. Move the widget back to a dock: it draws its Layout whatever the design says.
 
+## Taskbar visibility and elevated windows
+
+On Windows 11 build 26300, the dock kept Explorer's taskbar hidden while Start opened and hid it again after a forced reshow and app-bar state reset. Temporarily showing the taskbar restored its original state. Clicking the dock item for a minimized, elevated Active@ KillDisk restored its window and brought it to the foreground. This check simulated a taskbar reshow without restarting Explorer.
+
 ## How to resume
 
 **Round 33** (2026-11-14, table "Round 33" above, branch `feature/weather-designs`, from master, not merged or pushed): the Weather widget 1.4.0's Trend and Capsules layouts (33A) and the Sky, Bento and Bare desktop designs with the Panel and Colours cards (33B). Two commits. Built into `build\dev` only, nothing run: the manual check lists above are next, then a PR.

@@ -6,10 +6,10 @@
 
 namespace Activation {
 
-// Restores `hwnd` if minimized and makes it the foreground window. Works from the
-// WS_EX_NOACTIVATE dock because the click was delivered to our thread; if the foreground
-// lock still refuses, taps VK_MENU via SendInput and retries, then falls back to
-// AttachThreadInput / BringWindowToTop.
+// Restores `hwnd` if minimized (using Windows task switching if SW_RESTORE is denied)
+// and makes it the foreground window. The user's dock click lets us request the
+// foreground from a WS_EX_NOACTIVATE window. If refused, tap VK_MENU via SendInput and
+// retry, then fall back to AttachThreadInput / BringWindowToTop.
 bool BringToFront(HWND hwnd);
 
 void Minimize(HWND hwnd);
