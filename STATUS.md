@@ -1148,7 +1148,7 @@ On Windows 11 build 26300, the dock kept Explorer's taskbar hidden while Start o
 
 ## How to resume
 
-**Round 33** (2026-11-14, table "Round 33" above, branch `feature/weather-designs`, from master, not merged or pushed): the Weather widget 1.4.0's Trend and Capsules layouts (33A) and the Sky, Bento and Bare desktop designs with the Panel and Colours cards (33B). Two commits. Built into `build\dev` only, nothing run: the manual check lists above are next, then a PR.
+**Release 0.5.7** includes the Weather widget 1.4.0 designs from round 33 and the taskbar and elevated-window fixes. The round 33 desktop checks above are still open.
 
 **Round 29** (2026-11-13, table "Round 29" above, branch `feature/widget-dev-tools`, on `feature/widgets-styles`, not merged or pushed): 29A `--validate-widget` compiles the scripts and warns about unused permissions and missing metadata, `docs/windock.d.ts` (RCDATA 396, written by Export built-in), the Console's Copy all / Save to file… (4007 / 4008); 29B the in-tree zip reader (`Zip.cpp`, tests in `tests\zip`), Install from zip… / Uninstall… / Show folder (3514 - 3516, DockCommand 190 / 191, QueryState 374 - 376), `--validate-widget` on a zip. Built into `build\dev` only, nothing run.
 
