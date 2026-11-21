@@ -121,12 +121,16 @@ HWND StartMenuPlacer::Host() {
     // future build, another app's window): the owner process must be StartMenuExperienceHost.
     HWND h = nullptr;
     while ((h = FindWindowExW(nullptr, h, kHostClass, kHostTitle)) != nullptr) {
-        if (IsHostProcess(h)) {
+        if (IsStartHost(h)) {
             host_ = h;
             break;
         }
     }
     return host_;
+}
+
+bool StartMenuPlacer::IsStartHost(HWND hwnd) {
+    return IsHostWindow(hwnd) && IsHostProcess(hwnd);
 }
 
 bool StartMenuPlacer::IsOpen() {

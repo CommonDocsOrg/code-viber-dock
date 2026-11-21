@@ -34,6 +34,8 @@ public:
     // The Start host window (null: not found: another shell, a future build; then Place does
     // nothing and the caller just sends the key).
     HWND Host();
+    // Identifies the Start host in desktop-wide window events, including after a shell restart.
+    static bool IsStartHost(HWND hwnd);
     // The menu is open: the host is not cloaked.
     bool IsOpen();
     // The menu panel's rect in screen px at the host's natural place (the shift taken out): from UI

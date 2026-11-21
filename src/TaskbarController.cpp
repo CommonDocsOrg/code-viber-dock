@@ -9,14 +9,15 @@
 #include <iterator>
 
 #include "Config.h"
+#include "StartMenuPlacer.h"
 
 // TODO(win11-fallback): some Windows 11 builds are reported to ignore ShowWindow(SW_HIDE) on
 // Shell_TrayWnd (Explorer re-shows or re-composites the taskbar within seconds). On the build
 // this was developed on (26300) SW_HIDE plus the EVENT_OBJECT_SHOW hook holds, so the fallback is
 // not implemented. If it is ever needed: in ApplyHide(), after SW_HIDE, record each taskbar's
 // window rect in SavedState (and the marker) and SetWindowPos it below its monitor's bottom edge
-// (SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE); hook EVENT_OBJECT_LOCATIONCHANGE for Explorer's
-// PID to push it back; in Restore(), SetWindowPos it back to the saved rect before SW_SHOWNA.
+// (SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE); watch taskbar location changes to push it back.
+// In Restore(), SetWindowPos it back to the saved rect before SW_SHOWNA.
 
 namespace {
 
@@ -99,7 +100,7 @@ TaskbarController::TaskbarController() {
 
 TaskbarController::~TaskbarController() {
     if (active_) Restore();
-    RemoveHook();
+    RemoveHooks();
     CancelVerify();
     TaskbarController* expected = this;
     instance_.compare_exchange_strong(expected, nullptr);
@@ -181,6 +182,7 @@ void TaskbarController::SetEnabled(bool enabled) {
 
 void TaskbarController::Hide() {
     if (!enabled_) return;
+    InstallHooks();
 
     if (!active_) {
         if (!PrimaryTaskbar()) {
@@ -211,7 +213,7 @@ void TaskbarController::Restore() {
 
     // No heap allocation below this point (crash-path safe).
     CancelVerify();
-    RemoveHook();
+    RemoveHooks();
     pendingHide_ = false;
 
     if (active_ || saved_.valid) {
@@ -253,7 +255,7 @@ void TaskbarController::Restore() {
 void TaskbarController::OnTaskbarCreated() {
     if (!enabled_ || !(active_ || pendingHide_)) return;
     Trace(L"WinDock: TaskbarCreated, re-hiding\n");
-    Hide();  // re-finds the windows and re-hooks the new Explorer process
+    Hide();
 }
 
 void TaskbarController::OnWorkAreaChanged() {
@@ -309,23 +311,26 @@ void TaskbarController::EmergencyRestore() {
 // ---------------------------------------------------------------------------------------------
 // Hide internals
 
+void TaskbarController::EnsureAutoHide() {
+    // Auto-hide makes Explorer itself give the work area back; only set it if needed, since
+    // every ABM_SETSTATE makes Explorer re-run its layout.
+    APPBARDATA abd{sizeof(abd)};
+    abd.hWnd = PrimaryTaskbar();
+    if (!abd.hWnd) return;
+    const UINT state = static_cast<UINT>(SHAppBarMessage(ABM_GETSTATE, &abd));
+    if (!(state & ABS_AUTOHIDE)) SetAppBarState(state | ABS_AUTOHIDE);
+}
+
 void TaskbarController::ApplyHide() {
     if (!active_) return;
     const TaskbarList bars = FindTaskbars();
     if (bars.count == 0) return;  // Explorer went away; TaskbarCreated will call Hide() again
 
-    // Auto-hide makes Explorer itself give the work area back; only set it if needed, since
-    // every ABM_SETSTATE makes Explorer re-run its layout.
-    APPBARDATA abd{sizeof(abd)};
-    abd.hWnd = PrimaryTaskbar();
-    const UINT state = static_cast<UINT>(SHAppBarMessage(ABM_GETSTATE, &abd));
-    if (!(state & ABS_AUTOHIDE)) SetAppBarState(state | ABS_AUTOHIDE);
-
+    EnsureAutoHide();
     for (int i = 0; i < bars.count; ++i) {
         if (IsWindowVisible(bars.hwnd[i])) ShowWindow(bars.hwnd[i], SW_HIDE);
     }
 
-    InstallHook();
     workAreaFixes_ = 0;
     VerifyWorkArea();
     verifyStep_ = 0;
@@ -404,32 +409,43 @@ int TaskbarController::TaskbarEdge(HWND bar, const RECT& monitor) {
     return dx > 0 ? ABE_RIGHT : ABE_LEFT;
 }
 
-void TaskbarController::InstallHook() {
-    DWORD pid = 0;
-    if (HWND tray = PrimaryTaskbar()) GetWindowThreadProcessId(tray, &pid);
-    if (!pid) return;
-    if (hook_ && hookPid_ == pid) return;
-    RemoveHook();
-    hook_ = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, &TaskbarController::WinEventProc, pid,
-                            0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
-    hookPid_ = hook_ ? pid : 0;
-    if (!hook_) Trace(L"WinDock: SetWinEventHook failed (%lu)\n", GetLastError());
+void TaskbarController::InstallHooks() {
+    constexpr DWORD flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+    // A replacement Explorer can show its taskbar before the dock receives TaskbarCreated.
+    if (!showHook_) {
+        showHook_ = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, &WinEventProc, 0, 0, flags);
+        if (!showHook_) Trace(L"WinDock: taskbar show hook failed (%lu)\n", GetLastError());
+    }
+    // Windows keeps the Start host window alive and uncloaks it on both keyboard and dock opens.
+    if (!uncloakHook_) {
+        uncloakHook_ = SetWinEventHook(EVENT_OBJECT_UNCLOAKED, EVENT_OBJECT_UNCLOAKED, nullptr, &WinEventProc, 0, 0, flags);
+        if (!uncloakHook_) Trace(L"WinDock: Start uncloak hook failed (%lu)\n", GetLastError());
+    }
 }
 
-void TaskbarController::RemoveHook() {
-    if (hook_) UnhookWinEvent(hook_);
-    hook_ = nullptr;
-    hookPid_ = 0;
+void TaskbarController::RemoveHooks() {
+    if (showHook_) UnhookWinEvent(showHook_);
+    if (uncloakHook_) UnhookWinEvent(uncloakHook_);
+    showHook_ = nullptr;
+    uncloakHook_ = nullptr;
 }
 
-void CALLBACK TaskbarController::WinEventProc(HWINEVENTHOOK, DWORD, HWND hwnd, LONG idObject, LONG idChild, DWORD,
-                                              DWORD) {
-    // Fires for every window Explorer shows (menus, tooltips, flyouts): keep it trivial.
+void CALLBACK TaskbarController::WinEventProc(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG idObject, LONG idChild,
+                                              DWORD, DWORD) {
     if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF || !hwnd) return;
     TaskbarController* self = instance_.load(std::memory_order_relaxed);
-    if (!self || !self->active_ || !IsTaskbarClass(hwnd)) return;
-    ShowWindowAsync(hwnd, SW_HIDE);  // async: never block on Explorer from inside the callback
-    // A newly shown secondary taskbar (monitor attached) may have reserved its work area.
+    if (!self || !(self->active_ || self->pendingHide_)) return;
+    if (event == EVENT_OBJECT_SHOW && hook == self->showHook_ && IsTaskbarClass(hwnd)) {
+        if (self->active_ && IsWindowVisible(hwnd)) ShowWindowAsync(hwnd, SW_HIDE);
+    } else if (event == EVENT_OBJECT_UNCLOAKED && hook == self->uncloakHook_ && StartMenuPlacer::IsStartHost(hwnd)) {
+        // Start opening can reveal the taskbar. Hide it now and check again once Explorer settles.
+        const TaskbarList bars = FindTaskbars();
+        for (int i = 0; self->active_ && i < bars.count; ++i) {
+            if (IsWindowVisible(bars.hwnd[i])) ShowWindowAsync(bars.hwnd[i], SW_HIDE);
+        }
+    } else {
+        return;
+    }
     if (!self->verifyTimer_) {
         self->verifyStep_ = static_cast<int>(std::size(kVerifyDelaysMs)) - 1;
         self->ScheduleVerify(kVerifyDelaysMs[0]);
@@ -451,8 +467,13 @@ void CALLBACK TaskbarController::VerifyTimerProc(HWND, UINT, UINT_PTR id, DWORD)
     TaskbarController* self = instance_.load();
     if (!self || self->verifyTimer_ != id) return;
     self->verifyTimer_ = 0;
-    if (!self->active_) return;
+    if (!self->active_) {
+        if (self->pendingHide_) self->Hide();
+        return;
+    }
 
+    // Explorer can restore its persisted appbar state while its taskbar is starting up.
+    EnsureAutoHide();
     const TaskbarList bars = FindTaskbars();
     for (int i = 0; i < bars.count; ++i) {
         if (IsWindowVisible(bars.hwnd[i])) {

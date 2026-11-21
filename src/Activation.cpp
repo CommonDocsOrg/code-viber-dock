@@ -24,7 +24,11 @@ bool IsForeground(HWND hwnd) {
 bool BringToFront(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) return false;
 
-    if (IsIconic(hwnd)) ShowWindowAsync(hwnd, SW_RESTORE);
+    if (IsIconic(hwnd) && !ShowWindowAsync(hwnd, SW_RESTORE) && GetLastError() == ERROR_ACCESS_DENIED) {
+        // Windows can restore an elevated app through task switching even when it rejects
+        // SW_RESTORE from the dock. This is only used after an explicit activation request.
+        SwitchToThisWindow(hwnd, TRUE);
+    }
     if (SetForegroundWindow(hwnd)) return true;
 
     // Foreground lock: a synthetic Alt press makes us the last-input process. Release it only

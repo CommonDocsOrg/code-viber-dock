@@ -1737,9 +1737,70 @@ built-ins are worked examples too:
   only; standalone fills the window as before), `daySize` 60 - 250 % the day cells on their own
   (their text, icons and the tile's inner gap, not the gap between cells), `dayGap` 0 - 48 DIPs
   between cells (default 6) and `forecastGap` 0 - 48 DIPs between the conditions and the first
-  cell (default 8; half of it when the cells go under), both scaled by `size`. Test hook:
-  `"debugStore": true` stores what the slot (with its `days` count, `conditions`, `cell`,
-  `placement`, `stack`, `pack`) and the popup drew. Permissions `weather`, `shell`.
+  cell (default 8; half of it when the cells go under), both scaled by `size`. Round 33 phase 33A
+  (1.4.0): two more `layout` values. **`trend`**: after the conditions a temperature curve of the
+  next `trendHours` (6 - 24, default 12) hours from `hourly` (a `canvas.path` polyline,
+  `trendWidth` 40 - 300 DIPs wide, default 120, times `size` and `daySize`), a dot at now in the
+  accent, `trendRain` (default on) bars of `precip` under it, `trendLabels` `none` / `ends` (Now
+  and the last hour) / `peak` (default: also the extreme ahead, the highest point or, when the
+  hours fall further than they rise, the lowest: "25° at 4 PM"), `trendLine` `text` / `accent` /
+  `temperature` (a vertical gradient on the scale below); on a left / right dock `trendSide`
+  `thermometer` (default: a 7 x 52 DIP gradient bar from today's low to its high, a dot at the
+  temperature now, the high and low at its ends) or `text` (↑high over ↓low). Its second line is
+  the Text toggles' (no setting of its own): `showFeelsLike` (new, any layout: "Feels 20°") with
+  `showCondition`, `showPlace`, `showHigh`, `showLow`. **`capsules`**: a rounded chip per day
+  (`dockDays`, the day names, `daySize`, `dayGap`, `forecastGap` as for the cells; it shows days
+  whatever `dockForecast` says, and choosing it sets `dockForecast` to `"days"` through
+  `settings.set` so the page shows those fields): the icon, then the day's name over its high and
+  (`capsuleLow`, default on) its low; stacked and upright on a left / right dock (the name, the
+  icon, the high). `capsuleTint` `temperature` (default: the high on the scale) / `condition` /
+  `accent` / `none`, `capsuleStrength` 0 - 100 % (default 25; the outline takes 20 % + 1.1 x
+  that), `capsuleOutline` (default on), `capsuleRadius` 0 - 30 DIPs (default 30: pills). The
+  temperature scale (group "Colours"): `coldColor` (default `#FF6CB8FF`) and `hotColor`
+  (`#FFFF9F43`), the hue going straight from one to the other (blue to orange passes teal, green
+  and yellow), slightly desaturated in the middle; `tempScale` `fixed` (0 - 30 °C, 32 - 86 °F) or
+  `days` (the lowest to the highest value shown; the default since 33B). Round 33 phase 33B: a
+  standalone widget's **`design`** (`classic` default, `sky`, `bento`, `bare`; ignored on a dock,
+  where the slot keeps `layout`: a `visibleIf` can only name another field, so the row says it).
+  `classic` is the fitted slot as before, now over an optional panel. The **Panel** card
+  (`panelFill` `auto` / `none` / `solid` / `translucent` / `sky`, `auto` being Sky's sky, Bento's
+  translucent tiles and nothing for Classic; `panelColor` (`#00000000`: the theme's background),
+  `panelOpacity` 75 %, `panelRadius` 18, `panelOutline`, `panelShadow`, `panelPadding` 12; the
+  detail rows show once a fill is chosen) has no glass: the canvas cannot blur what is behind the
+  window, so translucent it is (a theme's acrylic still frosts through the window's own Background
+  "Panel" with `panelFill` none), and a shadow is four low-alpha rings cut out under the panel
+  (`fill(path, paint, "evenodd")`), the panel moved in from the window's edges for them. The
+  window's own Background is not visible to the script; `design`'s description asks for None (the
+  default). **`sky`**: a three-stop vertical gradient from the time of day at the place (dawn and
+  dusk 45 minutes either side of today's `sunrise` / `sunset`, day, night; grey when the day is
+  wet or overcast; `isDay` without sunrise or sunset) or `skyPalette` (one of the five, or
+  `custom`: `skyTop` / `skyBottom`, automatic text turning dark on a light one); the place and
+  "condition · feels" top left, the temperature at 54 DIPs light top right, `skyArc` (a dashed half
+  ellipse of two cubic quarters over a horizon, the sun at (now − sunrise) / daylight), the
+  sunrise / daylight / sunset line, a row of `designDays` (0 - 7, default 5) days. **One timer**:
+  a Sky widget whose picture moves with the clock (`skyPalette` auto or the arc shown) keeps a
+  single `setTimeout` to the next 10-minute mark or phase boundary, whichever is first; each draw
+  replaces it, any other design clears it, a hidden window's redraw waits for the host. **`bento`**:
+  tiles from `bentoTiles` (comma separated, in order: `main`, `feels`, `wind`, `humidity`, `uv`,
+  `sun`, `hours`, `days`; unknown names skipped; default `main,feels,wind,uv,sun,hours`), four
+  columns from 400 DIPs of width, else two; `main`, `hours` and `days` take two, the last tile of a
+  short row the rest; `bentoGap` 8, the hour strip `bentoHours` (4 - 12, default 6) `bentoStep`
+  (1 - 3, default 2) hours apart; the sun tile shows the next of sunset and sunrise (it changes on
+  the next redraw: Bento has no timer). **`bare`**: no panel; the temperature 88 DIPs at
+  `bareWeight` (`thin`: DirectWrite takes Segoe UI's lightest, Light; `regular`, `bold`), the
+  place, condition and high / low beside it on its baseline, a hairline, a line per day with a
+  range bar on one scale over the shown days (`bareBars` `gradient` / `accent` / `off`),
+  `bareAlign`, `bareScrim` 0 - 60 % (a rounded wash), `bareShadow` `none` / `soft` / `strong`
+  (copies of the text in a ring round it, dark under light text: there is no text shadow). The
+  **Colours** card: `textTone` (`auto`: the theme's text and date colours, light on Sky; `light`,
+  `dark`, `own` with `textColor`) and `accentColor` (`#00000000`: the theme's) for every layout
+  and design; the popup keeps the theme's. Switching to a design grows the window once to its size
+  (Sky 300 x 280, Bento 320 x 340, Bare 300 x 260) through `widget.resize` in `onSettingsChanged`,
+  only when it is smaller and only on a change of `design`. Test hook: `"debugStore": true` stores
+  what the slot (with its `days` count, `conditions`, `cell`, `placement`, `stack`, `pack`; round 33
+  also `layout`, `block` (`days`, `trend`, `thermo`, `range`, `capsules` or `none`), `hours`,
+  `design`, `panel`; a design stores its own record: `phase`, `palette`, `timerMs`, `sun`, `tiles`,
+  `rows`, `cols`, `k` ...) and the popup drew. Permissions `weather`, `shell`.
 - `widgets/notes` ("Notes", round 6): a note per item, written in the dock's text editor
   (`popup.editText`). Its text is kept in the widget's storage under `"note:" + dock.itemKey`, or
   under `"note:id:" + noteId` when the **Note id** setting is set (items with the same id, on any
