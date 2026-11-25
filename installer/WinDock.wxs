@@ -6,6 +6,7 @@
   Built by installer\build-installer.ps1, which passes:
     Version     the product version from CMakeLists.txt (project(... VERSION x.y.z))
     ExePath     the release WinDock.exe
+    ShortcutIconPath  the resource-only PE with the Start menu icon
     LicenseRtf  the LICENSE file converted to RTF (the license page of the UI)
 
   What the MSI does: per-machine install of the single static exe into Program Files\ViberDock,
@@ -40,8 +41,10 @@
                   DowngradeErrorMessage="A newer version of ViberDock is already installed. Uninstall it first to install this version." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
-    <Icon Id="DockIcon" SourceFile="$(var.ProjectRoot)\res\dock.ico" />
-    <Property Id="ARPPRODUCTICON" Value="DockIcon" />
+    <!-- Advertised shortcut icons must have the same extension as their target. -->
+    <Icon Id="DockShortcutIcon.exe" SourceFile="$(var.ShortcutIconPath)" />
+    <Icon Id="DockIcon.ico" SourceFile="$(var.ProjectRoot)\res\dock.ico" />
+    <Property Id="ARPPRODUCTICON" Value="DockIcon.ico" />
     <!-- (WixUI_InstallDir already sets ARPNOMODIFY.) -->
     <Property Id="ARPNOREPAIR" Value="1" />
     <Property Id="ARPURLINFOABOUT" Value="https://codeviber.org" />
@@ -66,7 +69,7 @@
           <!-- Advertised: keyed to the exe, so no per-user registry key path is needed. -->
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="ViberDock"
                     Description="ViberDock by CodeViber.org: a macOS-style dock for Windows 11"
-                    WorkingDirectory="INSTALLFOLDER" Icon="DockIcon" Advertise="yes" />
+                    WorkingDirectory="INSTALLFOLDER" Icon="DockShortcutIcon.exe" Advertise="yes" />
           <!-- Round 27 phase 27A: the way back to the taskbar without a command prompt (the
                troubleshooting guide's "If the taskbar is missing"). Runs the exe with the
                restore switch: it works whether or not the dock runs (src/main.cpp). Same file,
@@ -74,7 +77,7 @@
           <Shortcut Id="RestoreTaskbarShortcut" Directory="ProgramMenuFolder" Name="Restore Windows taskbar"
                     Description="ViberDock: brings the Windows taskbar back, also when ViberDock is not running"
                     Arguments="--restore-taskbar"
-                    WorkingDirectory="INSTALLFOLDER" Icon="DockIcon" Advertise="yes" />
+                    WorkingDirectory="INSTALLFOLDER" Icon="DockShortcutIcon.exe" Advertise="yes" />
         </File>
         <RemoveRegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="WinDock" />
       </Component>

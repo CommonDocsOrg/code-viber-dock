@@ -135,6 +135,13 @@ add_executable(WinDock WIN32
 
 target_include_directories(WinDock PRIVATE src)
 
+# Windows Installer needs a separate PE icon for the advertised WinDock.exe shortcuts.
+add_library(ViberDockShortcutIcon MODULE EXCLUDE_FROM_ALL res/shortcut-icon.rc)
+set_target_properties(ViberDockShortcutIcon PROPERTIES LINKER_LANGUAGE C)
+target_link_options(ViberDockShortcutIcon PRIVATE /NOENTRY /NODEFAULTLIB)
+set_source_files_properties(res/shortcut-icon.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/res/dock.ico")
+add_dependencies(WinDock ViberDockShortcutIcon)
+
 # The built-in widgets, clock faces, presets and guides are RCDATA in app.rc: rebuild the resources when one of them changes.
 file(GLOB_RECURSE WINDOCK_BUILTIN_WIDGETS CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/widgets/*.json

@@ -15,7 +15,7 @@
   unsigned installers downloaded from the web, which only code signing avoids).
 
 .PARAMETER NoBuild
-  Package the exe already in build\x64-release without rebuilding.
+  Package the exe and shortcut icon already in build\x64-release without rebuilding.
 
 .PARAMETER Version
   Override the version (default: project(WinDock VERSION x.y.z) in CMakeLists.txt, which is
@@ -36,6 +36,7 @@ $WixVersion = '5.0.2'
 
 $root = Split-Path -Parent $PSScriptRoot
 $exe = Join-Path $root 'build\x64-release\WinDock.exe'
+$shortcutIcon = Join-Path $root 'build\x64-release\ViberDockShortcutIcon.dll'
 $dist = Join-Path $root 'dist'
 $work = Join-Path $root 'build\installer'
 
@@ -57,6 +58,7 @@ if (-not $NoBuild) {
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
 }
 if (-not (Test-Path $exe)) { throw "Missing $exe (build first, or drop -NoBuild)." }
+if (-not (Test-Path $shortcutIcon)) { throw "Missing $shortcutIcon (build first, or drop -NoBuild)." }
 
 # 3. WiX as a global dotnet tool, plus its UI extension.
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
@@ -96,6 +98,7 @@ Write-Host "== wix build -> $msi"
     -ext WixToolset.UI.wixext `
     -d "Version=$Version" `
     -d "ExePath=$exe" `
+    -d "ShortcutIconPath=$shortcutIcon" `
     -d "ProjectRoot=$root" `
     -d "LicenseRtf=$licenseRtf" `
     -intermediateFolder (Join-Path $work 'obj') `
