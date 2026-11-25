@@ -308,13 +308,22 @@ declare namespace ViberDock {
     micName: string;
     devices: Array<{ id: string; name: string; default: boolean }>;
   }
+  interface AppAudio {
+    id: string;
+    name: string;
+    volume: number;
+    muted: boolean;
+  }
   /** Permission "audio". */
   interface Audio {
     get(): AudioState;
+    getApps(): AppAudio[];
     setVolume(v: number): void;
     setMuted(b: boolean): void;
     setMicMuted(b: boolean): void;
     setDevice(id: string): void;
+    setAppVolume(id: string, v: number): void;
+    setAppMuted(id: string, b: boolean): void;
     onChange(fn: (state: AudioState) => void): () => void;
   }
 

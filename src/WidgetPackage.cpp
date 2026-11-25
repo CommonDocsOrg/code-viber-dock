@@ -1948,7 +1948,7 @@ void GrantConsent(WidgetConsent& slot, const Package& pkg) {
 
 std::vector<std::wstring> PermissionLines(const Manifest& m) {
     std::vector<std::wstring> out;
-    if (m.audio) out.push_back(L"Audio: read and change the system volume, mute and the default speakers");
+    if (m.audio) out.push_back(L"Audio: read and change system and app volume, mute and the default speakers");
     if (m.calendar) out.push_back(L"Calendar: read the events of your calendar feeds (and refresh them)");
     if (m.input) out.push_back(L"Input language: see the current keyboard language and switch it");  // round 27
     if (m.media) out.push_back(L"Media: see what your media apps are playing (title, artist, cover art) and control playback");

@@ -288,7 +288,7 @@ private:
     bool ShellOpen(const std::wstring& target, const std::wstring& args, std::wstring& error) override;
     bool ShellList(const std::wstring& folder, std::string& json, std::wstring& error) override;
     bool SendKeys(const std::wstring& name, std::wstring& error) override;
-    bool AudioGet(std::string& json, std::wstring& error) override;
+    bool AudioGet(bool apps, std::string& json, std::wstring& error) override;
     bool AudioSet(const std::string& what, double number, const std::wstring& text, std::wstring& error) override;
     bool MediaGet(std::string& json, std::wstring& error) override;
     bool MediaCommand(const std::string& command, std::wstring& error) override;

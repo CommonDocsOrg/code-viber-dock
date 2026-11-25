@@ -1,8 +1,8 @@
 {
   "name": "Volume",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "ViberDock",
-  "description": "The default output's volume as an icon, a ring that fills up or a bar, with the level in percent. Wheel: change it, with a volume bar beside the dock; click: a popup with a slider, mute, microphone mute, the outputs and Sound settings; middle click: mute.",
+  "description": "The default output's volume as an icon, a ring or a bar. Click for output and microphone controls, Sound settings and an App mixer with separate volume and mute controls for each app. Scroll to change the output volume or middle-click to mute it.",
   "api": 1,
   "size": {
     "horizontal": { "main": 40, "cross": 48 },

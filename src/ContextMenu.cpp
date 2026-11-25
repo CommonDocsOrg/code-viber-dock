@@ -31,6 +31,8 @@ constexpr wchar_t kQuit = 0xE8BB;          // ChromeClose
 constexpr wchar_t kUndo = 0xE7A7;          // Undo
 constexpr wchar_t kOpen = 0xE8A7;          // OpenInNewWindow
 constexpr wchar_t kNewWindow = 0xE8A5;     // the plan's pick for New window
+constexpr wchar_t kVolume = 0xE767;        // Volume
+constexpr wchar_t kMute = 0xE74F;          // Mute
 constexpr wchar_t kClose = 0xE8BB;         // ChromeClose
 constexpr wchar_t kFileLocation = 0xE8DA;  // OpenLocal
 constexpr wchar_t kFolderOpen = 0xE838;    // FolderOpen
@@ -458,6 +460,10 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
             if (item.runningSettings) {
                 Append(menu, kOpenItemSettings, L"Running apps settings…", true, false, G::kRunning);
                 Separator(menu);
+            }
+            if (item.audioMuted.has_value()) {
+                if (*item.audioMuted) Append(menu, kUnmuteApp, L"Unmute app", true, false, G::kVolume);
+                else Append(menu, kMuteApp, L"Mute app", true, false, G::kMute);
             }
             Append(menu, kNewWindow, item.running ? L"New window" : L"Open", item.canLaunch, false,
                    item.running ? G::kNewWindow : G::kOpen);

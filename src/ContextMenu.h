@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -281,6 +282,8 @@ enum Command : UINT {
     // menu): the consent dialog for its widget (posted). The menu shows it only while the widget
     // needs a consent it does not have; as an ItemCommand it works on any script widget slot.
     kReviewConsent = 872,
+    kMuteApp = 873,
+    kUnmuteApp = 874,
     kCloseAllWindows = 900,
     // Round 13 phase 13C: a widget menu's quick entries, kQuickBase + the entry's index in
     // ItemMenuState::quick (at most kQuickMax). Menu-local: never sent as ItemCommands (866 is). The
@@ -358,6 +361,7 @@ struct ItemMenuState {
     bool canPin = true;            // false for apps without a launchable identity
     bool canLaunch = true;
     bool running = false;          // "New window" vs "Open"
+    std::optional<bool> audioMuted;  // absent if there are no controllable audio sessions
     bool canOpenLocation = false;  // path-based items
     bool binEmpty = false;         // the Recycle Bin has nothing in it (Empty is greyed)
     bool hasIcon = false;          // the pin's config entry names an `icon` (Reset icon is greyed otherwise)

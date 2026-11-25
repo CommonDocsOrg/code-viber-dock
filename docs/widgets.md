@@ -513,10 +513,9 @@ shortcuts (Ctrl+C, Alt+F4) into the app that has the focus. Round 11 phase 11B a
 
 ### audio
 
-Needs `"audio"` in `permissions`. The default output device (Windows' "Speakers") and input device
-(the microphone) through Core Audio. The provider starts with the first call of a widget that has
-the permission and stops when the last such widget goes; it is event-driven (Core Audio's device
-and volume callbacks), nothing polls.
+Needs `"audio"` in `permissions`. Core Audio provides the default output and input device controls
+and the per-app audio mixer. The provider starts with the first call of a widget that has the
+permission and stops when the last such widget goes. Device and master-volume changes are event-driven.
 
 | Call | |
 |---|---|
@@ -524,6 +523,8 @@ and volume callbacks), nothing polls.
 | `audio.setVolume(v)` | The output level, 0 - 1 (clamped). |
 | `audio.setMuted(b)`, `audio.setMicMuted(b)` | Mutes / unmutes the output / the microphone. |
 | `audio.setDevice(id)` | Makes the output with this id (from `devices`) the default (the console and multimedia roles, as the Sound settings do). This uses `IPolicyConfig`, the undocumented interface Windows' own settings use (stable since Windows 7). An id that is not an active output throws. |
+| `audio.getApps()` | Reads the current app sessions on active output devices and returns one `{ id, name, volume, muted }` per app. `volume` is its highest session level (0–1) and `muted` is true when all its sessions are muted. Returns an empty array in previews. |
+| `audio.setAppVolume(id, v)`, `audio.setAppMuted(id, b)` | Sets the level (clamped to 0–1) or mute state of an app's current sessions. Use an id from `getApps()`. These are separate controls: setting the level preserves mute. |
 | `audio.onChange(fn)` | `fn(state)` (the `get()` object) whenever the level, a mute state, the default devices or the device list change, by this widget, another program, the volume keys or the quick settings. Returns a function that removes the listener. Changes are coalesced (one call per burst). A mute change can take most of a second to be reported by Windows: a widget that changes something itself should update its own view at once. |
 
 ### media

@@ -9,8 +9,11 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
+
+struct AppKey;
 
 // The `audio` provider of the widget API (permission "audio"): the default output and input
 // devices' volume and mute through Core Audio (IAudioEndpointVolume on the default render and
@@ -28,6 +31,11 @@ public:
         std::wstring id;    // the endpoint id (IMMDevice::GetId)
         std::wstring name;  // its friendly name ("Speakers (Realtek Audio)")
         bool isDefault = false;
+    };
+    struct AppVolume {
+        std::wstring id, name;
+        float volume = 0.0f;
+        bool muted = false;
     };
     struct State {
         bool output = false;  // a default output device exists
@@ -59,6 +67,14 @@ public:
     // Makes `id` the default output (console and multimedia roles). This uses IPolicyConfig, the
     // interface Windows' own sound settings use (undocumented, stable since Windows 7).
     bool SetDevice(const std::wstring& id, std::wstring& error);
+
+    // On-demand snapshots of live app sessions across the active outputs. These also work
+    // without Start(), so a taskbar menu can control audio without a Volume widget.
+    std::vector<AppVolume> GetAppVolumes() const;
+    bool SetAppVolume(const std::wstring& id, float volume) const;
+    bool SetAppMuted(const std::wstring& id, bool muted) const;
+    std::optional<bool> GetAppMuted(const AppKey& key, const std::vector<HWND>& windows) const;
+    bool SetAppMuted(const AppKey& key, const std::vector<HWND>& windows, bool muted) const;
 
     // kMessage: re-reads what changed, then calls the changed callback. True if handled.
     bool HandleMessage(UINT msg, WPARAM wp, LPARAM lp);

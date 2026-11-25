@@ -1,12 +1,16 @@
 #include "AudioService.h"
 
 #include <mmreg.h>
+#include <audiopolicy.h>
 #include <propsys.h>
 #include <propvarutil.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <unordered_map>
+
+#include "AppIdentity.h"
 
 namespace {
 
@@ -55,6 +59,98 @@ std::wstring DeviceName(IMMDevice* d) {
     if (SUCCEEDED(props->GetValue(kFriendlyName, &v)) && v.vt == VT_LPWSTR && v.pwszVal) name = v.pwszVal;
     PropVariantClear(&v);
     return name;
+}
+
+struct AppSession {
+    DWORD pid;
+    AppKey key;
+    std::wstring id;
+    winrt::com_ptr<ISimpleAudioVolume> control;
+};
+
+std::vector<AppSession> ReadAppSessions(IMMDeviceEnumerator* enumerator) {
+    winrt::com_ptr<IMMDeviceEnumerator> temporary;
+    if (!enumerator) {
+        if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(temporary.put())))) return {};
+        enumerator = temporary.get();
+    }
+    winrt::com_ptr<IMMDeviceCollection> outputs;
+    UINT outputCount = 0;
+    if (FAILED(enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, outputs.put())) ||
+        FAILED(outputs->GetCount(&outputCount))) return {};
+
+    std::vector<AppSession> result;
+    std::unordered_map<DWORD, AppKey> keys;
+    for (UINT i = 0; i < outputCount; ++i) {
+        winrt::com_ptr<IMMDevice> output;
+        winrt::com_ptr<IAudioSessionManager2> manager;
+        winrt::com_ptr<IAudioSessionEnumerator> sessions;
+        int count = 0;
+        if (FAILED(outputs->Item(i, output.put())) ||
+            FAILED(output->Activate(__uuidof(IAudioSessionManager2), CLSCTX_INPROC_SERVER, nullptr, manager.put_void())) ||
+            FAILED(manager->GetSessionEnumerator(sessions.put())) || FAILED(sessions->GetCount(&count))) continue;
+
+        for (int j = 0; j < count; ++j) {
+            winrt::com_ptr<IAudioSessionControl> session;
+            if (FAILED(sessions->GetSession(j, session.put()))) continue;
+            auto details = session.try_as<IAudioSessionControl2>();
+            auto volume = session.try_as<ISimpleAudioVolume>();
+            AudioSessionState state = AudioSessionStateExpired;
+            DWORD pid = 0;
+            if (!details || !volume || FAILED(session->GetState(&state)) || state == AudioSessionStateExpired ||
+                details->IsSystemSoundsSession() == S_OK || FAILED(details->GetProcessId(&pid)) || !pid) continue;
+
+            auto [entry, inserted] = keys.try_emplace(pid);
+            if (inserted) {
+                if (auto key = AppIdentity::IdentifyProcess(pid)) entry->second = std::move(*key);
+            }
+            const AppKey& key = entry->second;
+            const std::wstring id = key.id.empty() ? std::wstring{} : (key.isAumid ? L"app:" : L"exe:") + key.id;
+            result.push_back({pid, key, id, std::move(volume)});
+        }
+    }
+    return result;
+}
+
+std::vector<AppSession> ReadMenuSessions(IMMDeviceEnumerator* enumerator, const AppKey& key,
+                                         const std::vector<HWND>& windows) {
+    std::vector<DWORD> pids;
+    std::vector<AppKey> processKeys;
+    for (HWND window : windows) {
+        // The window list can outlive the app while the context menu is open.
+        if (AppIdentity::IdentifyWindow(window) != key) continue;
+        const DWORD pid = AppIdentity::WindowAppProcessId(window);
+        if (!pid || std::find(pids.begin(), pids.end(), pid) != pids.end()) continue;
+        pids.push_back(pid);
+        // Some desktop windows publish an explicit AppUserModelID while Core Audio knows the
+        // executable. Match its other processes too, including browser audio subprocesses.
+        if (key.isAumid) {
+            if (auto processKey = AppIdentity::IdentifyProcess(pid)) processKeys.push_back(std::move(*processKey));
+        }
+    }
+    std::vector<AppSession> sessions = ReadAppSessions(enumerator);
+    std::erase_if(sessions, [&](const AppSession& s) {
+        return s.key != key && std::find(pids.begin(), pids.end(), s.pid) == pids.end() &&
+               std::find(processKeys.begin(), processKeys.end(), s.key) == processKeys.end();
+    });
+    return sessions;
+}
+
+template <typename Set>
+bool ApplyToSessions(const std::vector<AppSession>& sessions, Set set) {
+    bool ok = !sessions.empty();
+    for (const auto& s : sessions) {
+        if (FAILED(set(s.control.get()))) ok = false;
+    }
+    return ok;
+}
+
+std::vector<AppSession> ReadSessionsById(IMMDeviceEnumerator* enumerator, const std::wstring& id) {
+    if (id.empty()) return {};
+    auto sessions = ReadAppSessions(enumerator);
+    std::erase_if(sessions, [&](const AppSession& s) { return s.id != id; });
+    return sessions;
 }
 
 }  // namespace
@@ -255,4 +351,58 @@ bool AudioService::SetDevice(const std::wstring& id, std::wstring& error) {
         return false;
     }
     return true;  // OnDefaultDeviceChanged rebinds
+}
+
+std::vector<AudioService::AppVolume> AudioService::GetAppVolumes() const {
+    std::unordered_map<std::wstring, AppVolume> apps;
+    for (const auto& s : ReadAppSessions(enumerator_.get())) {
+        float volume = 0.0f;
+        BOOL muted = FALSE;
+        if (s.id.empty() || FAILED(s.control->GetMasterVolume(&volume)) || FAILED(s.control->GetMute(&muted))) continue;
+        auto& app = apps[s.id];
+        if (app.id.empty()) {
+            app = {s.id, AppIdentity::DisplayNameFor(s.key), volume, muted != FALSE};
+        } else {
+            app.volume = std::max(app.volume, volume);
+            app.muted = app.muted && muted != FALSE;
+        }
+    }
+    std::vector<AppVolume> result;
+    result.reserve(apps.size());
+    for (auto& entry : apps) result.push_back(std::move(entry.second));
+    std::sort(result.begin(), result.end(), [](const AppVolume& a, const AppVolume& b) {
+        const int order = CompareStringOrdinal(a.name.c_str(), -1, b.name.c_str(), -1, TRUE);
+        return order == CSTR_EQUAL ? a.id < b.id : order == CSTR_LESS_THAN;
+    });
+    return result;
+}
+
+bool AudioService::SetAppVolume(const std::wstring& id, float volume) const {
+    if (!std::isfinite(volume)) return false;
+    return ApplyToSessions(ReadSessionsById(enumerator_.get(), id), [&](ISimpleAudioVolume* control) {
+        return control->SetMasterVolume(std::clamp(volume, 0.0f, 1.0f), &kEventContext);
+    });
+}
+
+bool AudioService::SetAppMuted(const std::wstring& id, bool muted) const {
+    return ApplyToSessions(ReadSessionsById(enumerator_.get(), id), [&](ISimpleAudioVolume* control) {
+        return control->SetMute(muted ? TRUE : FALSE, &kEventContext);
+    });
+}
+
+std::optional<bool> AudioService::GetAppMuted(const AppKey& key, const std::vector<HWND>& windows) const {
+    std::optional<bool> muted;
+    for (const auto& s : ReadMenuSessions(enumerator_.get(), key, windows)) {
+        BOOL value = FALSE;
+        if (FAILED(s.control->GetMute(&value))) continue;
+        if (!value) return false;
+        muted = true;
+    }
+    return muted;
+}
+
+bool AudioService::SetAppMuted(const AppKey& key, const std::vector<HWND>& windows, bool muted) const {
+    return ApplyToSessions(ReadMenuSessions(enumerator_.get(), key, windows), [&](ISimpleAudioVolume* control) {
+        return control->SetMute(muted ? TRUE : FALSE, &kEventContext);
+    });
 }

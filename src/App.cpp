@@ -2006,6 +2006,12 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
         return;
     }
     switch (cmd) {
+        case ContextMenu::kMuteApp:
+        case ContextMenu::kUnmuteApp:
+            if (!windows.empty() && !docks_.Widgets().Audio().SetAppMuted(key, windows, cmd == ContextMenu::kMuteApp)) {
+                MessageBeep(MB_ICONWARNING);
+            }
+            return;
         case ContextMenu::kCloseAllWindows:
             for (HWND w : windows) {
                 if (IsWindow(w)) PostMessageW(w, WM_CLOSE, 0, 0);
@@ -2383,6 +2389,9 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
     itemState.canLaunch = item.kind != DockItem::Kind::Separator &&
                           (!key.IsClassFallback() || item.launchPath.has_value());
     itemState.running = !windows.empty();
+    if (item.kind == DockItem::Kind::App && itemState.running) {
+        itemState.audioMuted = docks_.Widgets().Audio().GetAppMuted(key, windows);
+    }
     // The special kinds have no file behind their synthetic key.
     itemState.canOpenLocation =
         !item.targetPath.empty() || (!key.isAumid && !key.IsClassFallback() && !key.IsSynthetic());

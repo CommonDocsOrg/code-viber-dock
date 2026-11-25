@@ -94,9 +94,10 @@ public:
     virtual bool SendKeys(const std::wstring& name, std::wstring& error) = 0;
 
     // --- audio (permission "audio"): the default devices' volume / mute, the outputs ---
-    // The state as a JSON object (docs/widgets.md, audio.get()).
-    virtual bool AudioGet(std::string& json, std::wstring& error) = 0;
-    // what: "volume" (number 0 - 1), "muted" / "micMuted" (number 0 / 1), "device" (text: an id).
+    // The endpoint state as a JSON object, or the app mixer as a JSON array.
+    virtual bool AudioGet(bool apps, std::string& json, std::wstring& error) = 0;
+    // "volume" / "appVolume" (0 - 1), "muted" / "micMuted" / "appMuted" (0 / 1), or "device".
+    // Pass the device or app id in text for device and app operations.
     virtual bool AudioSet(const std::string& what, double number, const std::wstring& text, std::wstring& error) = 0;
 
     // --- media (permission "media"): the current media session ---

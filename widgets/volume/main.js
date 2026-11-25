@@ -2,11 +2,11 @@
 // with one to three waves (a cross when muted) and the level in percent under it. The wheel
 // changes the level by settings.step percent a notch (unmuting on the way up), a middle click
 // mutes, a click opens a popup: the level slider, Mute, Mute microphone, the output devices (a
-// click makes one the default) and Sound settings. While the wheel turns, a volume bar (a passive
+// click makes one the default), Sound settings and an app mixer. While the wheel turns, a volume bar (a passive
 // popup: no focus, the mouse passes through it) stands beside the dock and goes 1.2 s after the
 // last notch. Event-driven: audio.onChange redraws when the level, the mute state or the devices
-// change (also when changed elsewhere: the volume keys, the quick settings); the bar's one-shot
-// is the only timer, and only while the bar is up.
+// change (also when changed elsewhere: the volume keys, the quick settings). The app mixer
+// refreshes only while its panel is open.
 //
 // Round 22 phase 22A (1.1.0): the look. settings.style is the view: "icon" (as before), "ring" (a
 // circle that fills clockwise from the top, the icon inside it), "bar-horizontal" / "bar-vertical"
@@ -22,15 +22,21 @@
 
 const POPUP_W = 300;
 const BAR_W = 44, BAR_H = 150, BAR_MS = 1200;
+const APPS_PER_PAGE = 4, APP_ROW_H = 58;
 let state = audio.get();
 let hits = [];  // the popup's click targets: { x, y, w, h, act }
 let bar = false;  // the volume bar (the passive popup) is up
 let barTimer = 0;
+let mixer = false;
+let apps = [];
+let mixerPage = 0;
+let mixerTimer = 0;
+let mixerError = '';
 
 audio.onChange((s) => {
   state = s;
   requestRedraw();
-  if (popup.isOpen) popup.open(POPUP_W, popupHeight());  // resizes (the device list) and redraws
+  if (popup.isOpen && !mixer) popup.open(POPUP_W, popupHeight());
   else if (bar) popup.redraw();
 });
 
@@ -359,10 +365,57 @@ export function onClick(e) {
 
 export function onPopupClose(e) {
   if (e.passive) endBar();
+  else endMixer();
 }
 
 function popupHeight() {
   return 136 + (state.mic ? 30 : 0) + 30 + state.devices.length * 28 + 48;
+}
+
+const pageCount = () => Math.max(1, Math.ceil(apps.length / APPS_PER_PAGE));
+const mixerHeight = () => 57 + Math.max(46, Math.min(apps.length, APPS_PER_PAGE) * APP_ROW_H) +
+  (pageCount() > 1 ? 34 : 0) + (mixerError ? 25 : 0);
+
+function refreshMixer(force = false) {
+  const oldHeight = mixerHeight();
+  const next = audio.getApps();
+  const changed = next.length !== apps.length || next.some((app, i) => {
+    const old = apps[i];
+    return app.id !== old.id || app.name !== old.name || app.muted !== old.muted || app.volume !== old.volume;
+  });
+  apps = next;
+  mixerPage = Math.min(mixerPage, pageCount() - 1);
+  if (force || oldHeight !== mixerHeight()) popup.open(POPUP_W, mixerHeight());
+  else if (changed) popup.redraw();
+}
+
+function openMixer() {
+  mixer = true;
+  refreshMixer(true);
+  mixerTimer = setInterval(() => {
+    if (popup.isOpen) refreshMixer();
+    else endMixer();
+  }, 1000);
+}
+
+function endMixer() {
+  clearInterval(mixerTimer);
+  mixerTimer = 0;
+  mixer = false;
+  apps = [];
+  mixerPage = 0;
+  mixerError = '';
+}
+
+function changeApp(action) {
+  const previousError = mixerError;
+  try {
+    action();
+    mixerError = '';
+  } catch (_) {
+    mixerError = 'Couldn’t change this app’s audio.';
+  }
+  refreshMixer(previousError !== mixerError);
 }
 
 // --- the popup ------------------------------------------------------------------------------------
@@ -378,6 +431,56 @@ function checkbox(canvas, x, y, on, label, dock, act) {
   const style = { size: 12.5, baseline: 'middle' };
   canvas.text(fit(canvas, label, style, POPUP_W - x - 40), x + 26, y + 12, { ...style, color: dock.theme.labelText });
   hits.push({ x: x - 4, y, w: POPUP_W - 2 * (x - 4), h: 24, act });
+}
+
+function button(canvas, dock, label, x, y, w, act) {
+  canvas.fillRoundRect(x, y, w, 26, 6, '#22808080');
+  canvas.text(label, x + w / 2, y + 13, { size: 12, align: 'center', baseline: 'middle', color: dock.theme.labelText });
+  hits.push({ x, y, w, h: 26, act });
+}
+
+function drawMixer(canvas, dock) {
+  const W = canvas.width;
+  const { labelText: ink, dateText: dim, accent } = dock.theme;
+  canvas.text('App mixer', 16, 14, { size: 14, weight: 'semibold', color: ink });
+  button(canvas, dock, 'Back to sound', W - 108, 9, 96, () => {
+    endMixer();
+    popup.open(POPUP_W, popupHeight());
+  });
+  let y = 44;
+  if (!apps.length) {
+    canvas.text('Start playing audio in an app to see it here.', 16, y + 12, { size: 12, color: dim });
+    y += 46;
+  }
+  const start = mixerPage * APPS_PER_PAGE;
+  for (const app of apps.slice(start, start + APPS_PER_PAGE)) {
+    canvas.line(16, y, W - 16, y, '#30808080', 1);
+    const nameStyle = { size: 13, weight: 'semibold', color: ink };
+    canvas.text(fit(canvas, app.name, nameStyle, W - 89), 16, y + 7, nameStyle);
+    canvas.text(percent(app.volume) + '%', W - 16, y + 7, { size: 12, align: 'right', color: dim });
+
+    const x0 = 19, x1 = W - 103, sy = y + 38;
+    const knob = x0 + (x1 - x0) * app.volume;
+    canvas.fillRoundRect(x0, sy - 2, x1 - x0, 4, 2, '#40808080');
+    if (knob > x0) canvas.fillRoundRect(x0, sy - 2, knob - x0, 4, 2, app.muted ? dim : accent);
+    canvas.fillCircle(knob, sy, 6, app.muted ? dim : ink);
+    hits.push({ x: x0 - 7, y: sy - 13, w: x1 - x0 + 14, h: 26, act: (e) => {
+      const volume = Math.min(1, Math.max(0, (e.x - x0) / (x1 - x0)));
+      changeApp(() => audio.setAppVolume(app.id, volume));
+    } });
+    button(canvas, dock, app.muted ? 'Unmute' : 'Mute', W - 85, sy - 13, 69,
+      () => changeApp(() => audio.setAppMuted(app.id, !app.muted)));
+    y += APP_ROW_H;
+  }
+  const pages = pageCount();
+  if (pages > 1) {
+    y = 44 + APPS_PER_PAGE * APP_ROW_H;
+    if (mixerPage > 0) button(canvas, dock, 'Previous', 16, y, 68, () => { --mixerPage; popup.redraw(); });
+    if (mixerPage + 1 < pages) button(canvas, dock, 'Next', W - 84, y, 68, () => { ++mixerPage; popup.redraw(); });
+    canvas.text(`${mixerPage + 1} / ${pages}`, W / 2, y + 13, { size: 12, align: 'center', baseline: 'middle', color: dim });
+    y += 34;
+  }
+  if (mixerError) canvas.text(mixerError, 16, y + 3, { size: 12, color: ink });
 }
 
 // The volume bar: the level on top, a vertical track filled from the bottom with a knob at the
@@ -403,12 +506,17 @@ export function drawPopup(canvas, dock) {
     return;
   }
   hits = [];
+  if (mixer) {
+    drawMixer(canvas, dock);
+    return;
+  }
   const W = canvas.width;
   const ink = dock.theme.labelText, dim = dock.theme.dateText, accent = dock.theme.accent;
   canvas.text('Sound', 16, 14, { size: 14, weight: 'semibold', color: ink });
-  canvas.text(state.available ? (state.muted ? 'Muted' : percent(state.volume) + '%') : '', W - 16, 14,
-    { size: 14, weight: 'semibold', align: 'right', color: ink });
-  canvas.text(fit(canvas, state.available ? state.device : 'No output device', { size: 11.5 }, W - 32), 16, 36, { size: 11.5, color: dim });
+  button(canvas, dock, 'App mixer', W - 101, 9, 89, openMixer);
+  canvas.text(state.available ? (state.muted ? 'Muted' : percent(state.volume) + '%') : '', W - 16, 38,
+    { size: 11.5, weight: 'semibold', align: 'right', color: ink });
+  canvas.text(fit(canvas, state.available ? state.device : 'No output device', { size: 11.5 }, W - 82), 16, 38, { size: 11.5, color: dim });
   // The slider, with the mute button in front of it.
   const sy = 72, x0 = 52, x1 = W - 20;
   canvas.fillRoundRect(12, sy - 14, 28, 28, 6, '#18FFFFFF');

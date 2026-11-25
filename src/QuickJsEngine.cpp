@@ -251,10 +251,13 @@ constexpr char kPrelude[] = R"JS(
   const p = n.providers;
   g.audio = Object.freeze({
     get: () => p.audioGet(),
+    getApps: () => p.audioGet(true),
     setVolume: (v) => p.audioSet('volume', Number(v)),
     setMuted: (b) => p.audioSet('muted', b ? 1 : 0),
     setMicMuted: (b) => p.audioSet('micMuted', b ? 1 : 0),
     setDevice: (id) => p.audioSet('device', 0, String(id)),
+    setAppVolume: (id, v) => p.audioSet('appVolume', Number(v), String(id)),
+    setAppMuted: (id, b) => p.audioSet('appMuted', b ? 1 : 0, String(id)),
     onChange: onChange('audio'),
   });
   g.media = Object.freeze({
@@ -2161,10 +2164,10 @@ JSValue JsonResult(JSContext* ctx, bool ok, const std::string& json, const std::
     if (!ok) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return JS_ParseJSON(ctx, json.data(), json.size(), what);
 }
-JSValue AudioGetFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+JSValue AudioGetFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     std::string json;
     std::wstring error;
-    const bool ok = Self(ctx)->host_.AudioGet(json, error);
+    const bool ok = Self(ctx)->host_.AudioGet(argc > 0 && JS_ToBool(ctx, argv[0]), json, error);
     return JsonResult(ctx, ok, json, error, "<audio>");
 }
 // audioSet(what, number, text)
@@ -2549,7 +2552,7 @@ const JSCFunctionListEntry kShellFuncs[] = {
 };
 
 const JSCFunctionListEntry kProviderFuncs[] = {
-    JS_CFUNC_DEF("audioGet", 0, Guard<AudioGetFn>),
+    JS_CFUNC_DEF("audioGet", 1, Guard<AudioGetFn>),
     JS_CFUNC_DEF("audioSet", 3, Guard<AudioSetFn>),
     JS_CFUNC_DEF("mediaGet", 0, Guard<MediaGetFn>),
     JS_CFUNC_DEF("mediaCmd", 1, Guard<MediaCmdFn>),

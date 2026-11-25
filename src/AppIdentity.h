@@ -19,6 +19,11 @@ namespace AppIdentity {
 // not attached yet); callers should retry later rather than cache a wrong key.
 std::optional<AppKey> IdentifyWindow(HWND hwnd);
 
+// Process identity for sources such as Core Audio that report a PID instead of a window.
+std::optional<AppKey> IdentifyProcess(DWORD pid);
+// The app process behind a window, including the hosted app in a UWP frame.
+DWORD WindowAppProcessId(HWND hwnd);
+
 // Human-readable app name: the Start menu name for AUMIDs, the exe's FileDescription
 // (falling back to the file stem) for paths.
 std::wstring DisplayNameFor(const AppKey& key);

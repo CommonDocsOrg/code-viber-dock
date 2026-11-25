@@ -82,7 +82,7 @@ std::wstring LongPath(const std::wstring& path) {
 }
 
 // Identity of a process: its package AUMID when packaged (single-app packages), else its exe path.
-std::optional<AppKey> IdentifyProcess(DWORD pid) {
+std::optional<AppKey> IdentifyProcessRaw(DWORD pid) {
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (!process) return std::nullopt;
 
@@ -127,6 +127,12 @@ BOOL CALLBACK FindCoreWindow(HWND child, LPARAM lp) {
     return FALSE;
 }
 
+HWND HostedCoreWindow(HWND frame, DWORD framePid) {
+    CoreWindowSearch search{framePid, nullptr};
+    EnumChildWindows(frame, FindCoreWindow, reinterpret_cast<LPARAM>(&search));
+    return search.found;
+}
+
 }  // namespace
 
 std::wstring Normalize(const std::wstring& s) {
@@ -164,6 +170,23 @@ std::optional<AppKey> IdentifyWindow(HWND hwnd) {
     return key;
 }
 
+std::optional<AppKey> IdentifyProcess(DWORD pid) {
+    auto key = IdentifyProcessRaw(pid);
+    if (key) key = Canonicalize(std::move(*key));
+    return key;
+}
+
+DWORD WindowAppProcessId(HWND hwnd) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid && ClassNameOf(hwnd) == L"ApplicationFrameWindow") {
+        const HWND core = HostedCoreWindow(hwnd, pid);
+        pid = 0;
+        if (core) GetWindowThreadProcessId(core, &pid);
+    }
+    return pid;
+}
+
 AppKey Canonicalize(AppKey key) {
     if (!key.isAumid) return key;  // path keys are already canonical
     const ExpandedAlias* a = FindAlias(key);
@@ -184,17 +207,15 @@ std::optional<AppKey> IdentifyWindowRaw(HWND hwnd) {
     if (cls == L"ApplicationFrameWindow") {
         // UWP host frame without the property: identify the hosted app's process instead of
         // ApplicationFrameHost.exe. If the content isn't attached yet, try again later.
-        CoreWindowSearch search{pid, nullptr};
-        EnumChildWindows(hwnd, FindCoreWindow, reinterpret_cast<LPARAM>(&search));
-        if (!search.found) return std::nullopt;
-        if (std::wstring aumid = WindowAumid(search.found); !aumid.empty()) return MakeAumidKey(aumid);
+        const HWND core = HostedCoreWindow(hwnd, pid);
+        if (!core) return std::nullopt;
+        if (std::wstring aumid = WindowAumid(core); !aumid.empty()) return MakeAumidKey(aumid);
         DWORD childPid = 0;
-        GetWindowThreadProcessId(search.found, &childPid);
-        if (auto key = IdentifyProcess(childPid)) return key;
-        return std::nullopt;
+        GetWindowThreadProcessId(core, &childPid);
+        return IdentifyProcessRaw(childPid);
     }
 
-    if (auto key = IdentifyProcess(pid)) return key;
+    if (auto key = IdentifyProcessRaw(pid)) return key;
 
     AppKey k;
     k.id = L"class:" + Normalize(cls);

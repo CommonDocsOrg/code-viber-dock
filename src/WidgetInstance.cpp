@@ -1979,19 +1979,29 @@ bool WidgetInstance::PressCombo(const std::wstring& n, const wchar_t* who, std::
     return true;
 }
 
-bool WidgetInstance::AudioGet(std::string& json, std::wstring& error) {
+bool WidgetInstance::AudioGet(bool apps, std::string& json, std::wstring& error) {
     if (!Permitted(Permission::Audio)) {
         error = L"audio needs the \"audio\" permission";
         return false;
     }
     if (preview_) {
-        json = WidgetSamples::AudioJson();
+        json = apps ? "[]" : WidgetSamples::AudioJson();
         return true;
     }
     const AudioService* a = runtime_.UseAudio(this);
     if (!a) {
         error = L"audio: Core Audio is not available";
         return false;
+    }
+    if (apps) {
+        json = "[";
+        for (const auto& app : a->GetAppVolumes()) {
+            if (json.size() > 1) json += ',';
+            json += "{\"id\":" + J(app.id) + ",\"name\":" + J(app.name) + ",\"volume\":" + Num(app.volume) +
+                    ",\"muted\":" + Bool(app.muted) + "}";
+        }
+        json += ']';
+        return true;
     }
     const AudioService::State& s = a->Get();
     std::string devices = "[";
@@ -2023,6 +2033,12 @@ bool WidgetInstance::AudioSet(const std::string& what, double number, const std:
     if (what == "muted") return a->SetMuted(number != 0.0, error);
     if (what == "micMuted") return a->SetMicMuted(number != 0.0, error);
     if (what == "device") return a->SetDevice(text, error);
+    if (what == "appVolume" || what == "appMuted") {
+        const bool ok = what == "appVolume" ? a->SetAppVolume(text, static_cast<float>(number))
+                                            : a->SetAppMuted(text, number != 0.0);
+        if (!ok) error = L"audio: the app's audio could not be changed";
+        return ok;
+    }
     error = L"audio: unknown setting";
     return false;
 }
